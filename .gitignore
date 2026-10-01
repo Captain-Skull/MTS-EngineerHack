@@ -7,6 +7,6 @@
 .env
 *.pem
 *.key
-kubeconfig*
+*.kubeconfig
 .DS_Store
 .claude-flow/

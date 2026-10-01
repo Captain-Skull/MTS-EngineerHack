@@ -30,7 +30,11 @@ download() {
   fi
 }
 
-installed_version() { [[ -x "${BIN}/$1" ]] && "${BIN}/$1" "${@:2}" 2>/dev/null || true; }
+installed_version() {
+  if [[ -x "${BIN}/$1" ]]; then
+    "${BIN}/$1" "${@:2}" 2>/dev/null || true
+  fi
+}
 
 if ! installed_version kubectl version --client | grep -q "${KUBECTL_VERSION}"; then
   log "kubectl ${KUBECTL_VERSION}"

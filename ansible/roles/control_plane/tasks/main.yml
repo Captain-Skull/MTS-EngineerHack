@@ -7,10 +7,10 @@
 - name: Ключ шифрования etcd уже есть?
   ansible.builtin.stat:
     path: /etc/kubernetes/encryption/config.yaml
-  register: enc_config
+  register: control_plane_enc_config
 
 - name: Сгенерировать ключ шифрования
-  when: not enc_config.stat.exists
+  when: not control_plane_enc_config.stat.exists
   block:
     - name: Каталог
       ansible.builtin.file:
@@ -48,20 +48,20 @@
 - name: Кластер уже инициализирован?
   ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
-  register: admin_conf
+  register: control_plane_admin_conf
 
-- name: kubeadm init
+- name: Инициализация кластера (kubeadm init)
   ansible.builtin.command: kubeadm init --config /etc/kubeadm/kubeadm-config.yaml --upload-certs
-  when: not admin_conf.stat.exists
+  when: not control_plane_admin_conf.stat.exists
   changed_when: true
 
-- name: kubeconfig для root и пользователя, запустившего Ansible
+- name: Kubeconfig для root и пользователя, запустившего Ansible
   ansible.builtin.include_tasks: kubeconfig.yml
   loop: "{{ ['root'] + ([ansible_env.SUDO_USER] if ansible_env.SUDO_USER | default('root') != 'root' else []) }}"
   loop_control:
     loop_var: kube_user
 
-- name: kubeconfig на управляющую машину ({{ kubeconfig_local_path }})
+- name: Kubeconfig на управляющую машину ({{ kubeconfig_local_path }})
   ansible.builtin.fetch:
     src: /etc/kubernetes/admin.conf
     dest: "{{ kubeconfig_local_path }}"
@@ -79,16 +79,16 @@
     kubectl --kubeconfig /etc/kubernetes/admin.conf
     taint nodes {{ ansible_nodename }} node-role.kubernetes.io/control-plane:NoSchedule-
   when: groups['workers'] | default([]) | length == 0
-  register: untaint
-  changed_when: "'untainted' in untaint.stdout"
-  failed_when: untaint.rc != 0 and 'not found' not in untaint.stderr
+  register: control_plane_untaint
+  changed_when: "'untainted' in control_plane_untaint.stdout"
+  failed_when: control_plane_untaint.rc != 0 and 'not found' not in control_plane_untaint.stderr
 
 - name: Команда присоединения worker-узлов
   ansible.builtin.command: kubeadm token create --print-join-command --ttl 30m
-  register: join_cmd
+  register: control_plane_join_cmd
   changed_when: false
   when: groups['workers'] | default([]) | length > 0
 
 - name: Сохранить команду для worker-ов
   ansible.builtin.set_fact:
-    kubeadm_join_command: "{{ join_cmd.stdout | default('') }}"
+    control_plane_join_command: "{{ control_plane_join_cmd.stdout | default('') }}"

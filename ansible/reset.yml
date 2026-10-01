@@ -2,9 +2,8 @@
   hosts: k8s_cluster
   become: true
   tasks:
-    - name: kubeadm reset
+    - name: Сброс узла (kubeadm reset)
       ansible.builtin.command: kubeadm reset --force
-      register: reset
       changed_when: true
       failed_when: false
     - name: Очистка остатков CNI и конфигурации

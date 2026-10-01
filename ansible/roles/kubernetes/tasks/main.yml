@@ -9,10 +9,10 @@
     url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor }}/deb/Release.key"
     dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
     mode: "0644"
-  register: download
+  register: kubernetes_apt_key
   retries: 5
   delay: 10
-  until: download is succeeded
+  until: kubernetes_apt_key is succeeded
 
 - name: Репозиторий Kubernetes
   ansible.builtin.apt_repository:
@@ -20,7 +20,7 @@
     filename: kubernetes
     state: present
 
-- name: kubelet, kubeadm, kubectl {{ kubernetes_version }}
+- name: Пакеты kubelet, kubeadm, kubectl {{ kubernetes_version }}
   ansible.builtin.apt:
     name:
       - "kubelet={{ kubernetes_version }}-{{ kubernetes_deb_revision }}"
@@ -31,10 +31,10 @@
     update_cache: true
     allow_downgrade: true
     allow_change_held_packages: true
-  register: download
+  register: kubernetes_packages
   retries: 5
   delay: 10
-  until: download is succeeded
+  until: kubernetes_packages is succeeded
 
 - name: Зафиксировать версии (apt-mark hold)
   ansible.builtin.dpkg_selections:
@@ -42,12 +42,12 @@
     selection: hold
   loop: [kubelet, kubeadm, kubectl]
 
-- name: kubelet слушает на IP узла (важно для узлов с несколькими интерфейсами)
+- name: IP узла для kubelet
   ansible.builtin.copy:
     dest: /etc/default/kubelet
     content: "KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}\n"
     mode: "0644"
-  register: kubelet_defaults
+  register: kubernetes_kubelet_defaults
 
 - name: Включить kubelet
   ansible.builtin.systemd_service:
@@ -58,4 +58,4 @@
   ansible.builtin.systemd_service:
     name: kubelet
     state: restarted
-  when: kubelet_defaults.changed and ('/etc/kubernetes/kubelet.conf' is file)
+  when: kubernetes_kubelet_defaults.changed and ('/etc/kubernetes/kubelet.conf' is file)

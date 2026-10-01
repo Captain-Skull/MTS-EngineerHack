@@ -1,0 +1,129 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  K8S_API_HOST: 127.0.0.1
+
+jobs:
+  lint:
+    name: Статические проверки
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секреты в истории Git (gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Инструменты (зафиксированные версии)
+        run: ./scripts/install-tools.sh && echo "$PWD/.bin" >> "$GITHUB_PATH"
+
+      - name: Shell-скрипты (shellcheck)
+        run: shellcheck scripts/*.sh
+
+      - name: YAML (yamllint)
+        run: pipx run yamllint==1.37.1 -c .yamllint.yaml .
+
+      - name: Ansible (syntax-check + ansible-lint)
+        run: |
+          ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook -i ansible/inventory/local.ini ansible/site.yml --syntax-check
+          pipx run --spec ansible-lint==25.9.2 ansible-lint ansible/
+
+      - name: Dockerfile (hadolint)
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: images/fluentd/Dockerfile
+
+      - name: Helm-чарты (helm lint)
+        run: for c in charts/*/; do helm lint "$c"; done
+
+      - name: Рендеринг всей платформы (helmfile template)
+        run: |
+          export HELM_DATA_HOME=$PWD/.helm/data HELM_CACHE_HOME=$PWD/.helm/cache HELM_CONFIG_HOME=$PWD/.helm/config
+          helmfile --file helmfile/helmfile.yaml.gotmpl template --skip-tests > rendered.yaml
+          cat helmfile/namespaces.yaml >> rendered.yaml
+
+      - name: Валидация манифестов по схемам Kubernetes и CRD (kubeconform)
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar -xz kubeconform
+          ./kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.36.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            rendered.yaml
+
+      - name: Безопасность конфигураций (Trivy misconfig)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: charts/
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  e2e:
+    name: E2E на Ubuntu 24.04 (kubeadm)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Освободить место и отключить Docker (runtime кластера — containerd)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h /
+
+      - name: Сборка образа Fluentd (тот же Dockerfile, без внешнего registry)
+        run: docker build -t "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki:ci" images/fluentd
+
+      - name: make cluster — kubeadm на этом runner-е (all-in-one)
+        run: make cluster
+
+      - name: Загрузить образ Fluentd в containerd кластера
+        run: docker save "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki:ci" | sudo ctr -n k8s.io images import -
+
+      - name: make platform — helmfile apply
+        env:
+          FLUENTD_IMAGE_TAG: ci
+        run: |
+          export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
+          make platform
+
+      - name: Идемпотентность — повторный запуск без изменений
+        env:
+          FLUENTD_IMAGE_TAG: ci
+        run: |
+          export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
+          make cluster 2>&1 | tee ansible-rerun.log
+          grep -E 'changed=0 ' ansible-rerun.log
+          ./scripts/platform.sh diff | tee helmfile-diff.log
+          ! grep -E '^(\+|-) ' helmfile-diff.log
+
+      - name: make test — smoke-тесты
+        run: make test
+
+      - name: Диагностика при ошибке
+        if: failure()
+        run: |
+          export KUBECONFIG=$PWD/.state/kubeconfig PATH=$PWD/.bin:$PATH
+          mkdir -p diag
+          kubectl get all,gateway,httproute,certificate -A -o wide > diag/resources.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag/events.txt 2>&1 || true
+          kubectl describe pods -A > diag/pods.txt 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-diagnostics
+          path: diag/

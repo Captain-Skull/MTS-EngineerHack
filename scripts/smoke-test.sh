@@ -81,8 +81,7 @@ check "тот же запрос в access-логе Envoy Gateway (сквозно
 
 step "3. Мониторинг (Prometheus)"
 no_down_targets() { test "$(prom_n 'up == 0')" = 0; }
-check "все targets Prometheus в состоянии up" eventually 120 no_down_targets
-prom 'up == 0' | python3 -c 'import sys,json;[print("     down:",r["metric"].get("job"),r["metric"].get("instance")) for r in json.load(sys.stdin)["data"]["result"]]'
+has_series() { test "$(prom_n "$1")" -gt 0 2>/dev/null; }
 for q in \
   'up{job=~"hello-v.*"}' \
   'nginx_http_requests_total' \
@@ -91,9 +90,14 @@ for q in \
   'node_cpu_seconds_total' \
   'kube_pod_status_ready' \
   'hubble_flows_processed_total'; do
-  n=$(prom_n "${q}")
-  check "PromQL ${q} → ${n} рядов" test "${n:-0}" -gt 0
+  if eventually 180 has_series "${q}"; then
+    ok "PromQL ${q} → $(prom_n "${q}") рядов"
+  else
+    bad "PromQL ${q} → 0 рядов за 3 минуты"
+  fi
 done
+check "все targets Prometheus в состоянии up" eventually 120 no_down_targets
+prom 'up == 0' | python3 -c 'import sys,json;[print("     down:",r["metric"].get("job"),r["metric"].get("instance")) for r in json.load(sys.stdin)["data"]["result"]]'
 rps=$(prom_v 'sum(rate(nginx_http_requests_total[2m]))')
 echo "     текущий RPS приложения: ${rps:-н/д}"
 

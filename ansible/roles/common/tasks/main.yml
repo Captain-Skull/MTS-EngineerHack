@@ -40,14 +40,24 @@
     value: "{{ item.value }}"
     sysctl_file: /etc/sysctl.d/99-kubernetes.conf
     reload: true
-  loop: "{{ sysctls | dict2items }}"
-  vars:
-    sysctls:
-      net.ipv4.ip_forward: 1
-      net.bridge.bridge-nf-call-iptables: 1
-      net.bridge.bridge-nf-call-ip6tables: 1
-      fs.inotify.max_user_instances: 8192
-      fs.inotify.max_user_watches: 524288
+  loop: "{{ common_sysctl | dict2items }}"
+
+- name: Текущие лимиты inotify
+  ansible.builtin.command: sysctl -n {{ item.key }}
+  loop: "{{ common_sysctl_min | dict2items }}"
+  register: common_inotify
+  changed_when: false
+
+- name: Лимиты inotify не ниже требуемых (Fluentd и kubelet следят за множеством файлов)
+  ansible.posix.sysctl:
+    name: "{{ item.item.key }}"
+    value: "{{ item.item.value }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: true
+  loop: "{{ common_inotify.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item.stdout | int < item.item.value | int
 
 - name: UFW не должен мешать трафику кластера (на облачных образах Ubuntu он выключен)
   ansible.builtin.command: ufw status

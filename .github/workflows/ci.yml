@@ -121,7 +121,7 @@ jobs:
           export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
           make cluster 2>&1 | tee ansible-rerun.log
           if ! grep -qE 'changed=0 ' ansible-rerun.log; then
-            grep -B4 -E '^changed:' ansible-rerun.log | grep -E '^TASK' | sed 's/^/::error title=Ansible changed::/'
+            grep -B4 -E '^changed:' ansible-rerun.log | grep -E '^(TASK|changed:)' | head -10 | sed 's/^/::error title=Ansible changed::/'
             exit 1
           fi
           ./scripts/platform.sh diff 2>&1 | tee helmfile-diff.log

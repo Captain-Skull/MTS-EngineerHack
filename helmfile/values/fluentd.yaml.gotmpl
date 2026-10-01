@@ -183,7 +183,7 @@ fileConfigs:
           total_limit_size 512m
           retry_type exponential_backoff
           retry_max_interval 30
-          retry_forever true
+          retry_timeout 15m
           overflow_action drop_oldest_chunk
         </buffer>
       </match>

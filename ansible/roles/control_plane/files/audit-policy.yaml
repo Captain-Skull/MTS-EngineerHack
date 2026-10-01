@@ -13,8 +13,4 @@ rules:
   - level: None
     verbs: [get, list, watch]
   - level: Metadata
-    resources:
-      - group: ""
-        resources: [secrets, configmaps]
-  - level: RequestResponse
     verbs: [create, update, patch, delete, deletecollection]

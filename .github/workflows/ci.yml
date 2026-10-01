@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Секреты в истории Git (gitleaks)
         uses: gitleaks/gitleaks-action@v3
@@ -32,20 +34,24 @@ jobs:
         run: ./scripts/install-tools.sh && echo "$PWD/.bin" >> "$GITHUB_PATH"
 
       - name: Shell-скрипты (shellcheck)
-        run: shellcheck scripts/*.sh
+        run: shellcheck -x scripts/*.sh
 
       - name: YAML (yamllint)
-        run: pipx run yamllint==1.37.1 -c .yamllint.yaml .
+        run: pipx run yamllint==1.38.0 -c .yamllint.yaml .
 
       - name: Ansible (syntax-check + ansible-lint)
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections
         run: |
-          ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook -i ansible/inventory/local.ini ansible/site.yml --syntax-check
-          pipx run --spec ansible-lint==25.9.2 ansible-lint ansible/
+          ansible-playbook -i ansible/inventory/local.ini ansible/site.yml --syntax-check
+          pipx run --spec ansible-lint==26.9.0 ansible-lint ansible/
 
       - name: Dockerfile (hadolint)
         uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: images/fluentd/Dockerfile
+          config: .hadolint.yaml
 
       - name: Helm-чарты (helm lint)
         run: for c in charts/*/; do helm lint "$c"; done
@@ -54,7 +60,7 @@ jobs:
         run: |
           export HELM_DATA_HOME=$PWD/.helm/data HELM_CACHE_HOME=$PWD/.helm/cache HELM_CONFIG_HOME=$PWD/.helm/config
           helmfile --file helmfile/helmfile.yaml.gotmpl template --skip-tests > rendered.yaml
-          cat helmfile/namespaces.yaml >> rendered.yaml
+          { echo '---'; cat helmfile/namespaces.yaml; } >> rendered.yaml
 
       - name: Валидация манифестов по схемам Kubernetes и CRD (kubeconform)
         run: |

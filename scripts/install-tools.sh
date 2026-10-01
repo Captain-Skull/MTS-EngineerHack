@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${ROOT}/.bin"
-# shellcheck source=../versions.env
+# shellcheck source=SCRIPTDIR/../versions.env
 source "${ROOT}/versions.env"
 
 mkdir -p "${BIN}"
@@ -96,4 +96,4 @@ fi
 ansible-galaxy collection install -r "${ROOT}/ansible/requirements.yml" -p "${ROOT}/.ansible/collections" \
   >"${tmp}/galaxy.log" 2>&1 || { cat "${tmp}/galaxy.log" >&2; exit 1; }
 
-log "готово: $(ls "${BIN}" | tr '\n' ' ')"
+log "готово: $(find "${BIN}" -mindepth 1 -maxdepth 1 -exec basename {} \; | sort | tr '\n' ' ')"

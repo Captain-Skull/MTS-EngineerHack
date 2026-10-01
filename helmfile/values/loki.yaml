@@ -27,6 +27,7 @@ loki:
 
 singleBinary:
   replicas: 1
+  sidecar: false
   persistence:
     enabled: true
     storageClass: local-path

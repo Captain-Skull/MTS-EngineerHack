@@ -57,7 +57,7 @@
 
 - name: Kubeconfig для root и пользователя, запустившего Ansible
   ansible.builtin.include_tasks: kubeconfig.yml
-  loop: "{{ ['root'] + ([ansible_env.SUDO_USER] if ansible_env.SUDO_USER | default('root') != 'root' else []) }}"
+  loop: "{{ ['root'] + ([ansible_facts['env'].SUDO_USER] if ansible_facts['env'].SUDO_USER | default('root') != 'root' else []) }}"
   loop_control:
     loop_var: kube_user
 
@@ -77,7 +77,7 @@
 - name: Кластер из одного узла — разрешить нагрузку на control-plane
   ansible.builtin.command: >
     kubectl --kubeconfig /etc/kubernetes/admin.conf
-    taint nodes {{ ansible_nodename }} node-role.kubernetes.io/control-plane:NoSchedule-
+    taint nodes {{ ansible_facts['nodename'] }} node-role.kubernetes.io/control-plane:NoSchedule-
   when: groups['workers'] | default([]) | length == 0
   register: control_plane_untaint
   changed_when: "'untainted' in control_plane_untaint.stdout"

@@ -18,7 +18,7 @@ networking:
 apiServer:
   certSANs:
     - {{ node_ip }}
-    - {{ ansible_nodename }}
+    - {{ ansible_facts['nodename'] }}
     - 127.0.0.1
     - localhost
   extraArgs:

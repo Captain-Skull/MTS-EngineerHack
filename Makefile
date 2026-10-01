@@ -1,0 +1,65 @@
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -euo pipefail -c
+.DEFAULT_GOAL := help
+
+ROOT := $(abspath .)
+export PATH := $(ROOT)/.bin:$(PATH)
+export KUBECONFIG := $(ROOT)/.state/kubeconfig
+export HELM_DATA_HOME := $(ROOT)/.helm/data
+export HELM_CACHE_HOME := $(ROOT)/.helm/cache
+export HELM_CONFIG_HOME := $(ROOT)/.helm/config
+export ANSIBLE_CONFIG := $(ROOT)/ansible/ansible.cfg
+
+INVENTORY ?= $(if $(wildcard .state/inventory.ini),.state/inventory.ini,ansible/inventory/local.ini)
+BECOME_FLAG := $(shell sudo -n true 2>/dev/null || grep -q ansible_user $(INVENTORY) 2>/dev/null || echo --ask-become-pass)
+ENV ?= default
+
+.PHONY: help
+help: ## Показать список команд
+	@awk 'BEGIN{FS=":.*## "} /^[a-z-]+:.*## /{printf "  \033[36m%-14s\033[0m %s\n",$$1,$$2}' $(MAKEFILE_LIST)
+
+.PHONY: tools
+tools: ## Установить kubectl/helm/helmfile/ansible в ./.bin (зафиксированные версии)
+	@./scripts/install-tools.sh
+
+.PHONY: vms
+vms: ## Создать VM Ubuntu 24.04 в Multipass (1 control-plane + 2 worker)
+	@./scripts/multipass.sh up
+
+.PHONY: cluster
+cluster: tools ## Развернуть Kubernetes (kubeadm) на узлах из INVENTORY
+	@mkdir -p .state
+	ansible-playbook -i $(INVENTORY) ansible/site.yml $(BECOME_FLAG)
+
+.PHONY: platform
+platform: tools ## Установить платформу и приложение (helmfile apply)
+	@./scripts/platform.sh apply
+
+.PHONY: deploy
+deploy: cluster platform test ## Полное развертывание: кластер + платформа + проверки
+
+.PHONY: lab
+lab: vms deploy ## Multipass-стенд + полное развертывание
+
+.PHONY: test
+test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
+	@./scripts/smoke-test.sh
+
+.PHONY: status
+status: ## Состояние кластера и точки входа
+	@kubectl get nodes -o wide
+	@kubectl get gateway,httproute -A
+	@kubectl get pods -A
+
+.PHONY: diff
+diff: tools ## Показать, что изменит helmfile apply
+	@./scripts/platform.sh diff
+
+.PHONY: reset
+reset: tools ## Удалить кластер с узлов (kubeadm reset)
+	ansible-playbook -i $(INVENTORY) ansible/reset.yml $(BECOME_FLAG)
+	@rm -f .state/kubeconfig
+
+.PHONY: vms-down
+vms-down: ## Удалить VM Multipass
+	@./scripts/multipass.sh down

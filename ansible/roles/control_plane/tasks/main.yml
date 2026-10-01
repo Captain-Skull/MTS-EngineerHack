@@ -1,3 +1,8 @@
+- name: Кластер уже инициализирован?
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: control_plane_admin_conf
+
 - name: Каталог конфигурации kubeadm
   ansible.builtin.file:
     path: /etc/kubeadm
@@ -38,6 +43,7 @@
     src: audit-policy.yaml
     dest: /etc/kubernetes/audit-policy.yaml
     mode: "0600"
+  register: control_plane_audit_policy
 
 - name: Конфигурация kubeadm
   ansible.builtin.template:
@@ -45,15 +51,26 @@
     dest: /etc/kubeadm/kubeadm-config.yaml
     mode: "0600"
 
-- name: Кластер уже инициализирован?
-  ansible.builtin.stat:
-    path: /etc/kubernetes/admin.conf
-  register: control_plane_admin_conf
-
 - name: Инициализация кластера (kubeadm init)
   ansible.builtin.command: kubeadm init --config /etc/kubeadm/kubeadm-config.yaml --upload-certs
   when: not control_plane_admin_conf.stat.exists
   changed_when: true
+
+- name: Применение новой политики аудита на работающем кластере
+  when: control_plane_admin_conf.stat.exists and control_plane_audit_policy.changed
+  block:
+    - name: Перезапуск kube-apiserver (kubelet поднимет static pod заново)
+      ansible.builtin.shell: set -o pipefail && crictl ps --name kube-apiserver -q | xargs -r crictl stop
+      args:
+        executable: /bin/bash
+      changed_when: true
+    - name: Ожидание готовности API server
+      ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
+      register: control_plane_readyz
+      retries: 30
+      delay: 5
+      until: control_plane_readyz.rc == 0
+      changed_when: false
 
 - name: Kubeconfig для root и пользователя, запустившего Ansible
   ansible.builtin.include_tasks: kubeconfig.yml
@@ -82,6 +99,14 @@
   register: control_plane_untaint
   changed_when: "'untainted' in control_plane_untaint.stdout"
   failed_when: control_plane_untaint.rc != 0 and 'not found' not in control_plane_untaint.stderr
+
+- name: Кластер из одного узла — узел участвует во внешней балансировке
+  ansible.builtin.command: >
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    label node {{ ansible_facts['nodename'] }} node.kubernetes.io/exclude-from-external-load-balancers-
+  when: groups['workers'] | default([]) | length == 0
+  register: control_plane_unlabel
+  changed_when: "'unlabeled' in control_plane_unlabel.stdout"
 
 - name: Команда присоединения worker-узлов
   ansible.builtin.command: kubeadm token create --print-join-command --ttl 30m

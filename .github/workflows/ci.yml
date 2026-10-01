@@ -120,9 +120,15 @@ jobs:
         run: |
           export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
           make cluster 2>&1 | tee ansible-rerun.log
-          grep -E 'changed=0 ' ansible-rerun.log
-          ./scripts/platform.sh diff | tee helmfile-diff.log
-          ! grep -E '^(\+|-) ' helmfile-diff.log
+          if ! grep -qE 'changed=0 ' ansible-rerun.log; then
+            grep -B4 -E '^changed:' ansible-rerun.log | grep -E '^TASK' | sed 's/^/::error title=Ansible changed::/'
+            exit 1
+          fi
+          ./scripts/platform.sh diff 2>&1 | tee helmfile-diff.log
+          if grep -qE '^(\+|-) ' helmfile-diff.log; then
+            grep -E 'has changed|^(\+|-) ' helmfile-diff.log | head -10 | sed 's/^/::error title=helmfile diff::/'
+            exit 1
+          fi
 
       - name: make test — smoke-тесты
         run: make test

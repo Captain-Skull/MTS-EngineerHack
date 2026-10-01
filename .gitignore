@@ -1,2 +1,12 @@
+.bin/
+.venv/
+.uv/
+.helm/
+.ansible/
+.state/
 .env
+*.pem
+*.key
+kubeconfig*
 .DS_Store
+.claude-flow/

@@ -15,10 +15,18 @@
   until: kubernetes_apt_key is succeeded
 
 - name: Репозиторий Kubernetes
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor }}/deb/ /"
-    filename: kubernetes
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor }}/deb/"
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.asc
     state: present
+
+- name: Удалить репозиторий в старом формате
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/kubernetes.list
+    state: absent
 
 - name: Пакеты kubelet, kubeadm, kubectl {{ kubernetes_version }}
   ansible.builtin.apt:

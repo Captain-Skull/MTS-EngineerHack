@@ -8,10 +8,10 @@ cluster_name: mts-hack
 pod_subnet: 10.244.0.0/16
 service_subnet: 10.96.0.0/12
 
-node_ip: "{{ ansible_default_ipv4.address }}"
-control_plane_ip: "{{ hostvars[groups['control_plane'][0]]['ansible_default_ipv4']['address'] }}"
+node_ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+control_plane_ip: "{{ hostvars[groups['control_plane'][0]]['ansible_facts']['default_ipv4']['address'] }}"
 
 kubeconfig_local_path: "{{ playbook_dir }}/../.state/kubeconfig"
 
 arch_map: { x86_64: amd64, aarch64: arm64 }
-node_arch: "{{ arch_map[ansible_architecture] }}"
+node_arch: "{{ arch_map[ansible_facts['architecture']] }}"

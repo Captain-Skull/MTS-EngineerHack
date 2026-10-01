@@ -1,0 +1,17 @@
+kubernetes_version: "1.36.5"
+kubernetes_minor: "{{ kubernetes_version | regex_replace('^(\\d+\\.\\d+).*$', '\\1') }}"
+kubernetes_deb_revision: "1.1"
+containerd_version: "2.4.1"
+runc_version: "1.5.2"
+
+cluster_name: mts-hack
+pod_subnet: 10.244.0.0/16
+service_subnet: 10.96.0.0/12
+
+node_ip: "{{ ansible_default_ipv4.address }}"
+control_plane_ip: "{{ hostvars[groups['control_plane'][0]]['ansible_default_ipv4']['address'] }}"
+
+kubeconfig_local_path: "{{ playbook_dir }}/../.state/kubeconfig"
+
+arch_map: { x86_64: amd64, aarch64: arm64 }
+node_arch: "{{ arch_map[ansible_architecture] }}"

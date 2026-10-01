@@ -1,0 +1,40 @@
+- name: Проверка окружения
+  hosts: k8s_cluster
+  gather_facts: true
+  tasks:
+    - name: Поддерживается только Ubuntu 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_distribution_version is version('24.04', '>=')
+        fail_msg: "Решение тестировалось на Ubuntu 24.04, обнаружено {{ ansible_distribution }} {{ ansible_distribution_version }}"
+    - name: Минимальные ресурсы узла
+      ansible.builtin.assert:
+        that:
+          - ansible_processor_vcpus >= 2
+          - ansible_memtotal_mb >= 3500
+        fail_msg: "Нужно ≥2 vCPU и ≥4 ГБ RAM на узел (есть {{ ansible_processor_vcpus }} vCPU, {{ ansible_memtotal_mb }} МБ)"
+    - name: Ровно один control-plane узел
+      ansible.builtin.assert:
+        that: groups['control_plane'] | length == 1
+      run_once: true
+
+- name: Подготовка всех узлов
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - common
+    - containerd
+    - kubernetes
+
+- name: Control plane
+  hosts: control_plane
+  become: true
+  roles:
+    - control_plane
+
+- name: Worker-узлы
+  hosts: workers
+  become: true
+  roles:
+    - worker

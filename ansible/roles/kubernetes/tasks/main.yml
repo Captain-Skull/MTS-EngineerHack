@@ -1,0 +1,61 @@
+- name: Каталог для ключей apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Ключ репозитория pkgs.k8s.io (v{{ kubernetes_minor }})
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: "0644"
+  register: download
+  retries: 5
+  delay: 10
+  until: download is succeeded
+
+- name: Репозиторий Kubernetes
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor }}/deb/ /"
+    filename: kubernetes
+    state: present
+
+- name: kubelet, kubeadm, kubectl {{ kubernetes_version }}
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ kubernetes_version }}-{{ kubernetes_deb_revision }}"
+      - "kubeadm={{ kubernetes_version }}-{{ kubernetes_deb_revision }}"
+      - "kubectl={{ kubernetes_version }}-{{ kubernetes_deb_revision }}"
+      - cri-tools
+    state: present
+    update_cache: true
+    allow_downgrade: true
+    allow_change_held_packages: true
+  register: download
+  retries: 5
+  delay: 10
+  until: download is succeeded
+
+- name: Зафиксировать версии (apt-mark hold)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [kubelet, kubeadm, kubectl]
+
+- name: kubelet слушает на IP узла (важно для узлов с несколькими интерфейсами)
+  ansible.builtin.copy:
+    dest: /etc/default/kubelet
+    content: "KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}\n"
+    mode: "0644"
+  register: kubelet_defaults
+
+- name: Включить kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true
+
+- name: Перезапуск kubelet после смены аргументов (если кластер уже создан)
+  ansible.builtin.systemd_service:
+    name: kubelet
+    state: restarted
+  when: kubelet_defaults.changed and ('/etc/kubernetes/kubelet.conf' is file)

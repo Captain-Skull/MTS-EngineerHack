@@ -1,0 +1,79 @@
+- name: Установленная версия containerd
+  ansible.builtin.command: /usr/local/bin/containerd --version
+  register: containerd_installed
+  changed_when: false
+  failed_when: false
+
+- name: Установка containerd {{ containerd_version }}
+  when: containerd_version not in (containerd_installed.stdout | default(''))
+  block:
+    - name: Скачать архив containerd
+      ansible.builtin.get_url:
+        url: "https://github.com/containerd/containerd/releases/download/v{{ containerd_version }}/containerd-{{ containerd_version }}-linux-{{ node_arch }}.tar.gz"
+        checksum: "sha256:https://github.com/containerd/containerd/releases/download/v{{ containerd_version }}/containerd-{{ containerd_version }}-linux-{{ node_arch }}.tar.gz.sha256sum"
+        dest: /tmp/containerd.tar.gz
+        mode: "0644"
+      register: download
+      retries: 5
+      delay: 10
+      until: download is succeeded
+    - name: Распаковать в /usr/local
+      ansible.builtin.unarchive:
+        src: /tmp/containerd.tar.gz
+        dest: /usr/local
+        remote_src: true
+      notify: restart containerd
+
+- name: runc {{ runc_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/opencontainers/runc/releases/download/v{{ runc_version }}/runc.{{ node_arch }}"
+    checksum: "sha256:https://github.com/opencontainers/runc/releases/download/v{{ runc_version }}/runc.sha256sum"
+    dest: /usr/local/sbin/runc
+    mode: "0755"
+  notify: restart containerd
+  register: download
+  retries: 5
+  delay: 10
+  until: download is succeeded
+
+- name: systemd unit containerd
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/containerd/containerd/v{{ containerd_version }}/containerd.service"
+    dest: /etc/systemd/system/containerd.service
+    mode: "0644"
+  notify: restart containerd
+  register: download
+  retries: 5
+  delay: 10
+  until: download is succeeded
+
+- name: Каталог конфигурации
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Конфигурация containerd (systemd cgroup driver)
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: /etc/containerd/config.toml
+    mode: "0644"
+  notify: restart containerd
+
+- name: Запуск containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Применить изменения до установки kubelet
+  ansible.builtin.meta: flush_handlers
+
+- name: crictl должен работать с containerd
+  ansible.builtin.copy:
+    dest: /etc/crictl.yaml
+    content: |
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+    mode: "0644"

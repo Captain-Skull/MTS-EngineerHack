@@ -1,0 +1,61 @@
+- name: Базовые пакеты
+  ansible.builtin.apt:
+    name: [apt-transport-https, ca-certificates, curl, gpg, conntrack, socat, ethtool, jq, nfs-common]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: download
+  retries: 5
+  delay: 10
+  until: download is succeeded
+
+- name: Отключить swap сейчас
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+  changed_when: true
+
+- name: Отключить swap в fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Модули ядра для container runtime и сетевого моста
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: "0644"
+
+- name: Загрузить модули
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: [overlay, br_netfilter]
+
+- name: Параметры ядра для Kubernetes
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: true
+  loop: "{{ sysctls | dict2items }}"
+  vars:
+    sysctls:
+      net.ipv4.ip_forward: 1
+      net.bridge.bridge-nf-call-iptables: 1
+      net.bridge.bridge-nf-call-ip6tables: 1
+      fs.inotify.max_user_instances: 8192
+      fs.inotify.max_user_watches: 524288
+
+- name: UFW не должен мешать трафику кластера (на облачных образах Ubuntu он выключен)
+  ansible.builtin.command: ufw status
+  register: ufw
+  changed_when: false
+  failed_when: false
+
+- name: Предупреждение про UFW
+  ansible.builtin.debug:
+    msg: "UFW активен — убедитесь, что открыты порты 6443, 10250, 80, 443 и трафик между узлами"
+  when: "'Status: active' in (ufw.stdout | default(''))"

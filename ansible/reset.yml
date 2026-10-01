@@ -1,0 +1,14 @@
+- name: Сброс Kubernetes
+  hosts: k8s_cluster
+  become: true
+  tasks:
+    - name: kubeadm reset
+      ansible.builtin.command: kubeadm reset --force
+      register: reset
+      changed_when: true
+      failed_when: false
+    - name: Очистка остатков CNI и конфигурации
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: [/etc/cni/net.d, /etc/kubernetes, /var/lib/etcd, /root/.kube, /etc/kubeadm]

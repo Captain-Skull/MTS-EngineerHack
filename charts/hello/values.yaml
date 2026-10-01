@@ -1,0 +1,29 @@
+version: v1
+
+replicas: 2
+
+image:
+  repository: nginxinc/nginx-unprivileged
+  tag: 1.31.6-alpine
+  digest: sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
+
+exporter:
+  image:
+    repository: nginx/nginx-prometheus-exporter
+    tag: 1.5.3
+    digest: sha256:85666e7fde7e253f1c6d978f9a961245df4c9cdb7677e1866d9bb28e8f9ee41d
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+networkPolicy:
+  enabled: true
+  gatewayNamespace: envoy-gateway-system
+  monitoringNamespace: monitoring

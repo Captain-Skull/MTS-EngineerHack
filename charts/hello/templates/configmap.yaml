@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hello.fullname" . }}
+  labels: {{- include "hello.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr warn;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      server_tokens off;
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path       /tmp/proxy_temp;
+      fastcgi_temp_path     /tmp/fastcgi_temp;
+      uwsgi_temp_path       /tmp/uwsgi_temp;
+      scgi_temp_path        /tmp/scgi_temp;
+
+      log_format json escape=json '{'
+        '"time":"$time_iso8601",'
+        '"request_id":"$http_x_request_id",'
+        '"remote_addr":"$remote_addr",'
+        '"x_forwarded_for":"$http_x_forwarded_for",'
+        '"method":"$request_method",'
+        '"host":"$host",'
+        '"uri":"$request_uri",'
+        '"protocol":"$server_protocol",'
+        '"status":$status,'
+        '"bytes_sent":$body_bytes_sent,'
+        '"request_time":$request_time,'
+        '"user_agent":"$http_user_agent",'
+        '"app_version":"{{ .Values.version }}",'
+        '"pod":"$hostname"'
+      '}';
+      access_log /dev/stdout json;
+
+      server {
+        listen 8080;
+        default_type text/plain;
+        add_header X-App-Version {{ .Values.version }} always;
+        add_header X-Request-Id $http_x_request_id always;
+
+        location = / {
+          return 200 "Hello World! version={{ .Values.version }} pod=$hostname\n";
+        }
+        location = /healthz {
+          access_log off;
+          return 200 "ok\n";
+        }
+        location = /error {
+          return 500 "simulated error\n";
+        }
+        location / {
+          return 404 "not found\n";
+        }
+      }
+
+      server {
+        listen 127.0.0.1:8081;
+        location = /stub_status {
+          access_log off;
+          stub_status;
+        }
+      }
+    }

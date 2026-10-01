@@ -28,10 +28,10 @@
 ```bash
 git clone https://github.com/Captain-Skull/MTS-EngineerHack.git
 cd MTS-EngineerHack
-make deploy
+./deploy.sh
 ```
 
-`make deploy` за ~15–20 минут выполняет:
+`./deploy.sh` доустанавливает через apt отсутствующие базовые утилиты (`make`, `git`, `curl`, `python3` — на минимальных образах Ubuntu `make` нет) и запускает `make deploy`. Если `make` уже установлен, можно сразу выполнять `make deploy`. За ~15–20 минут выполняется:
 
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
@@ -154,6 +154,7 @@ flowchart LR
 ```bash
 git clone https://github.com/Captain-Skull/MTS-EngineerHack.git
 cd MTS-EngineerHack
+sudo apt-get install -y make   # если make отсутствует
 make tools      # инструменты в ./.bin
 make cluster    # Kubernetes через kubeadm (кластер из одного узла)
 make platform   # платформа и приложение
@@ -161,7 +162,7 @@ make test       # проверки
 make info       # адреса и доступы
 ```
 
-`make deploy` выполняет `cluster`, `platform` и `test` подряд. Повторный запуск любой команды не меняет работающую систему: Ansible сообщает `changed=0`, helmfile применяет только отличия.
+`make deploy` (или `./deploy.sh`) выполняет `cluster`, `platform` и `test` подряд. Повторный запуск любой команды не меняет работающую систему: Ansible сообщает `changed=0`, helmfile применяет только отличия.
 
 Для работы с кластером напрямую:
 
@@ -320,6 +321,7 @@ cosign verify ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1 \
 ## Структура репозитория
 
 ```
+deploy.sh                   развертывание одной командой (доустанавливает make)
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
 scripts/                    install-tools, multipass, platform, smoke-test, info

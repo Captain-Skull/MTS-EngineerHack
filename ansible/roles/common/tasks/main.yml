@@ -4,10 +4,10 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
-  register: download
+  register: common_apt
   retries: 5
   delay: 10
-  until: download is succeeded
+  until: common_apt is succeeded
 
 - name: Отключить swap сейчас
   ansible.builtin.command: swapoff -a
@@ -51,11 +51,11 @@
 
 - name: UFW не должен мешать трафику кластера (на облачных образах Ubuntu он выключен)
   ansible.builtin.command: ufw status
-  register: ufw
+  register: common_ufw
   changed_when: false
   failed_when: false
 
 - name: Предупреждение про UFW
   ansible.builtin.debug:
     msg: "UFW активен — убедитесь, что открыты порты 6443, 10250, 80, 443 и трафик между узлами"
-  when: "'Status: active' in (ufw.stdout | default(''))"
+  when: "'Status: active' in (common_ufw.stdout | default(''))"

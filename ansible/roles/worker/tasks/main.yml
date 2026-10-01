@@ -1,9 +1,9 @@
 - name: Узел уже в кластере?
   ansible.builtin.stat:
     path: /etc/kubernetes/kubelet.conf
-  register: kubelet_conf
+  register: worker_kubelet_conf
 
-- name: kubeadm join
-  ansible.builtin.command: "{{ hostvars[groups['control_plane'][0]]['kubeadm_join_command'] }}"
-  when: not kubelet_conf.stat.exists
+- name: Присоединение к кластеру (kubeadm join)
+  ansible.builtin.command: "{{ hostvars[groups['control_plane'][0]]['control_plane_join_command'] }}"
+  when: not worker_kubelet_conf.stat.exists
   changed_when: true

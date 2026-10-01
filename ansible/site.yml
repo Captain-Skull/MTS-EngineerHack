@@ -17,7 +17,6 @@
     - name: Ровно один control-plane узел
       ansible.builtin.assert:
         that: groups['control_plane'] | length == 1
-      run_once: true
 
 - name: Подготовка всех узлов
   hosts: k8s_cluster

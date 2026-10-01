@@ -10,7 +10,11 @@ GW_NS=envoy-gateway-system GW_NAME=public
 
 pass=0 fail=0
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; pass=$((pass + 1)); }
-bad()  { printf '  \033[31m✘\033[0m %s\n' "$*"; fail=$((fail + 1)); }
+bad()  {
+  printf '  \033[31m✘\033[0m %s\n' "$*"
+  [[ -n "${GITHUB_ACTIONS:-}" ]] && printf '::error title=smoke-test::%s\n' "$*"
+  fail=$((fail + 1))
+}
 step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 check() { local d="$1"; shift; if "$@"; then ok "${d}"; else bad "${d}"; fi; }
 eventually() { local t="$1"; shift; local end=$((SECONDS + t)); until "$@"; do ((SECONDS >= end)) && return 1; sleep 3; done; }

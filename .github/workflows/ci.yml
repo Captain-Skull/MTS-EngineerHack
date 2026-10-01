@@ -141,6 +141,8 @@ jobs:
           kubectl get all,gateway,httproute,certificate -A -o wide > diag/resources.txt 2>&1 || true
           kubectl get events -A --sort-by=.lastTimestamp > diag/events.txt 2>&1 || true
           kubectl describe pods -A > diag/pods.txt 2>&1 || true
+          kubectl get pods -A --no-headers 2>/dev/null | grep -v -E 'Running|Completed' | head -8 | sed 's/^/::error title=pod not running::/' || true
+          kubectl get gateway -A -o wide --no-headers 2>/dev/null | sed 's/^/::error title=gateway::/' || true
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

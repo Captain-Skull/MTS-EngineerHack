@@ -45,6 +45,10 @@ lab: vms deploy ## Multipass-стенд + полное развертывани�
 test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
 	@./scripts/smoke-test.sh
 
+.PHONY: info
+info: ## Адрес Gateway, строка для /etc/hosts, URL интерфейсов и пример curl
+	@./scripts/info.sh
+
 .PHONY: status
 status: ## Состояние кластера и точки входа
 	@kubectl get nodes -o wide

@@ -1,0 +1,122 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ .Values.gateway.className }}-proxy
+  namespace: {{ .Values.gateway.namespace }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: io.cilium/node
+        externalTrafficPolicy: Cluster
+      envoyDeployment:
+        replicas: {{ .Values.gateway.proxyReplicas }}
+        container:
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 512Mi }
+  telemetry:
+    metrics:
+      prometheus: {}
+      enableVirtualHostStats: true
+    accessLog:
+      settings:
+        - format:
+            type: JSON
+            json:
+              time: "%START_TIME%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+              method: "%REQ(:METHOD)%"
+              host: "%REQ(:AUTHORITY)%"
+              path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+              protocol: "%PROTOCOL%"
+              status: "%RESPONSE_CODE%"
+              response_flags: "%RESPONSE_FLAGS%"
+              duration_ms: "%DURATION%"
+              upstream_host: "%UPSTREAM_HOST%"
+              upstream_cluster: "%UPSTREAM_CLUSTER%"
+              route: "%ROUTE_NAME%"
+              user_agent: "%REQ(USER-AGENT)%"
+          sinks:
+            - type: File
+              file:
+                path: /dev/stdout
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.gateway.className }}
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: {{ .Values.gateway.className }}-proxy
+    namespace: {{ .Values.gateway.namespace }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name }}
+  namespace: {{ .Values.gateway.namespace }}
+spec:
+  gatewayClassName: {{ .Values.gateway.className }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.{{ .Values.domain }}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: gateway-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{ .Values.gateway.routeNamespaceLabel }}: "true"
+        kinds:
+          - kind: HTTPRoute
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https
+  namespace: {{ .Values.gateway.namespace }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: {{ .Values.gateway.name }}-client
+  namespace: {{ .Values.gateway.namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.gateway.name }}
+  tls:
+    minVersion: "1.2"
+    alpnProtocols: [h2, http/1.1]
+  headers:
+    requestID: PreserveOrGenerate

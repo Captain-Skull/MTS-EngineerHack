@@ -1,0 +1,90 @@
+crds:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+kubeEtcd:
+  service:
+    port: 2381
+    targetPort: 2381
+
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    retention: 7d
+    retentionSize: 8GB
+    enableFeatures: [exemplar-storage]
+    externalUrl: https://prometheus.{{ .Values.domain }}
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 2Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  alertmanagerSpec:
+    externalUrl: https://alertmanager.{{ .Values.domain }}
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    server:
+      root_url: https://grafana.{{ .Values.domain }}
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.logging.svc:3100
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          - name: request_id
+            matcherType: label
+            matcherRegex: request_id
+            url: '$${__value.raw}'
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 64Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }

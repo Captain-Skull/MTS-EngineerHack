@@ -1,0 +1,190 @@
+kind: DaemonSet
+
+image:
+  repository: {{ .Values.fluentd.image.repository }}
+  tag: {{ .Values.fluentd.image.tag | quote }}
+  pullPolicy: IfNotPresent
+
+podSecurityPolicy:
+  enabled: false
+
+podSecurityContext:
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  runAsUser: 0
+  runAsNonRoot: false
+  allowPrivilegeEscalation: false
+  capabilities: { drop: [ALL] }
+
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+
+priorityClassName: system-node-critical
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+mountVarLogDirectory: true
+mountDockerContainersDirectory: false
+
+env:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef: { fieldPath: spec.nodeName }
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    additionalLabels: {}
+  prometheusRule:
+    enabled: false
+dashboards:
+  enabled: "false"
+
+fileConfigs:
+  02_filters.conf: null
+  03_dispatch.conf: null
+  04_outputs.conf: null
+  01_sources.conf: |-
+    <source>
+      @type tail
+      @id in_tail_containers
+      @label @KUBERNETES
+      path /var/log/containers/*.log
+      exclude_path ["/var/log/containers/fluentd-*_logging_*.log"]
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      follow_inodes true
+      refresh_interval 5
+      <parse>
+        @type cri
+      </parse>
+    </source>
+
+    <source>
+      @type tail
+      @id in_tail_audit
+      @label @AUDIT
+      path /var/log/kubernetes/audit/audit.log
+      pos_file /var/log/fluentd-audit.log.pos
+      tag audit
+      read_from_head true
+      <parse>
+        @type json
+        time_key stageTimestamp
+        time_type string
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
+    </source>
+
+    <source>
+      @type prometheus
+      bind 0.0.0.0
+      port 24231
+      metrics_path /metrics
+    </source>
+    <source>
+      @type prometheus_monitor
+    </source>
+    <source>
+      @type prometheus_output_monitor
+    </source>
+
+  10_kubernetes.conf: |-
+    <label @KUBERNETES>
+      <filter kubernetes.**>
+        @type concat
+        key message
+        use_partial_cri_logtag true
+        partial_cri_logtag_key logtag
+        partial_cri_stream_key stream
+        separator ""
+        use_first_timestamp true
+      </filter>
+
+      <filter kubernetes.**>
+        @type kubernetes_metadata
+        @id filter_kube_metadata
+        skip_master_url true
+        skip_container_metadata true
+        skip_namespace_metadata true
+      </filter>
+
+      <filter kubernetes.**>
+        @type parser
+        key_name message
+        reserve_data true
+        reserve_time true
+        remove_key_name_field true
+        emit_invalid_record_to_error false
+        <parse>
+          @type json
+        </parse>
+      </filter>
+
+      <filter kubernetes.**>
+        @type prometheus
+        <metric>
+          name fluentd_input_records_total
+          type counter
+          desc Записи логов, прочитанные Fluentd
+          <labels>
+            namespace $.kubernetes.namespace_name
+            node "#{ENV['K8S_NODE_NAME']}"
+          </labels>
+        </metric>
+      </filter>
+
+      <match **>
+        @type relabel
+        @label @LOKI
+      </match>
+    </label>
+
+    <label @AUDIT>
+      <filter audit>
+        @type record_transformer
+        enable_ruby true
+        <record>
+          kubernetes ${ {"namespace_name" => "kube-system", "container_name" => "kube-apiserver-audit", "host" => ENV["K8S_NODE_NAME"]} }
+        </record>
+      </filter>
+      <match **>
+        @type relabel
+        @label @LOKI
+      </match>
+    </label>
+
+  20_loki.conf: |-
+    <label @LOKI>
+      <match **>
+        @type loki
+        @id out_loki
+        url http://loki.logging.svc:3100
+        extra_labels {"cluster":"mts-hack"}
+        line_format json
+        <label>
+          namespace $.kubernetes.namespace_name
+          container $.kubernetes.container_name
+          app $.kubernetes.labels.app_kubernetes_io_name
+          node $.kubernetes.host
+          stream $.stream
+        </label>
+        remove_keys logtag,docker
+        <buffer>
+          @type file
+          path /var/log/fluentd-buffers/loki
+          flush_interval 2s
+          flush_thread_count 2
+          chunk_limit_size 1m
+          total_limit_size 512m
+          retry_type exponential_backoff
+          retry_max_interval 30
+          retry_forever true
+          overflow_action drop_oldest_chunk
+        </buffer>
+      </match>
+    </label>

@@ -1,0 +1,96 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hello
+  namespace: demo
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      namespace: {{ .Values.gateway.namespace }}
+      sectionName: https
+  hostnames:
+    - hello.{{ .Values.domain }}
+  rules:
+    - name: canary-header
+      matches:
+        - headers:
+            - name: X-Canary
+              value: always
+      backendRefs:
+        - name: hello-v2
+          port: 80
+{{- range $v := list "v1" "v2" }}
+    - name: pinned-{{ $v }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /{{ $v }}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            add:
+              - name: X-Route
+                value: pinned-{{ $v }}
+      backendRefs:
+        - name: hello-{{ $v }}
+          port: 80
+{{- end }}
+    - name: weighted
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 10s
+      backendRefs:
+        - name: hello-v1
+          port: 80
+          weight: {{ sub 100 .Values.canaryWeight }}
+        - name: hello-v2
+          port: 80
+          weight: {{ .Values.canaryWeight }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: hello
+  namespace: demo
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hello
+  rateLimit:
+    local:
+      rules:
+        - limit:
+            requests: {{ .Values.rateLimit.requests }}
+            unit: {{ .Values.rateLimit.unit }}
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers: [connect-failure, refused-stream, reset]
+      httpStatusCodes: [502, 503]
+    perRetry:
+      timeout: 2s
+      backOff:
+        baseInterval: 100ms
+        maxInterval: 1s
+  timeout:
+    http:
+      connectionIdleTimeout: 60s
+  circuitBreaker:
+    maxConnections: 1024
+    maxPendingRequests: 256
+    maxParallelRequests: 1024
+  healthCheck:
+    passive:
+      consecutive5XxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50

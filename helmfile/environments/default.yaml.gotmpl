@@ -1,0 +1,6 @@
+domain: demo.test
+apiServerHost: {{ requiredEnv "K8S_API_HOST" }}
+fluentd:
+  image:
+    repository: {{ env "FLUENTD_IMAGE_REPOSITORY" | default "ghcr.io/georgemkrtchyan/fluentd-k8s-loki" }}
+    tag: {{ env "FLUENTD_IMAGE_TAG" | default "1.19.3-1" }}

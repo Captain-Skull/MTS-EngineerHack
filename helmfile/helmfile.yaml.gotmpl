@@ -1,0 +1,136 @@
+environments:
+  default:
+    values:
+      - environments/default.yaml.gotmpl
+---
+repositories:
+  - name: cilium
+    url: https://helm.cilium.io
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana-community
+    url: https://grafana-community.github.io/helm-charts
+  - name: fluent
+    url: https://fluent.github.io/helm-charts
+  - name: metrics-server
+    url: https://kubernetes-sigs.github.io/metrics-server
+  - name: kubelet-csr-approver
+    url: https://postfinance.github.io/kubelet-csr-approver
+
+helmDefaults:
+  wait: true
+  waitForJobs: true
+  timeout: 900
+  createNamespace: false
+
+releases:
+  - name: prometheus-operator-crds
+    namespace: monitoring
+    chart: prometheus-community/prometheus-operator-crds
+    version: 32.0.1
+    labels: { tier: crds }
+
+  - name: cilium
+    namespace: kube-system
+    chart: cilium/cilium
+    version: 1.20.2
+    needs: [monitoring/prometheus-operator-crds]
+    values: [values/cilium.yaml.gotmpl]
+    labels: { tier: network }
+
+  - name: kubelet-csr-approver
+    namespace: kube-system
+    chart: kubelet-csr-approver/kubelet-csr-approver
+    version: 1.2.15
+    needs: [kube-system/cilium]
+    values:
+      - providerRegex: '.*'
+        bypassDnsResolution: true
+        replicas: 1
+        metrics:
+          serviceMonitor:
+            enabled: true
+    labels: { tier: platform }
+
+  - name: metrics-server
+    namespace: kube-system
+    chart: metrics-server/metrics-server
+    version: 3.14.0
+    needs: [kube-system/kubelet-csr-approver]
+    values:
+      - serviceMonitor:
+          enabled: true
+    labels: { tier: platform }
+
+  - name: local-path-provisioner
+    namespace: local-path-storage
+    chart: git::https://github.com/rancher/local-path-provisioner.git@deploy/chart/local-path-provisioner?ref=v0.0.37
+    needs: [kube-system/cilium]
+    values: [values/local-path.yaml]
+    labels: { tier: storage }
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: v1.21.2
+    needs: [kube-system/cilium]
+    values: [values/cert-manager.yaml]
+    labels: { tier: platform }
+
+  - name: envoy-gateway
+    namespace: envoy-gateway-system
+    chart: oci://docker.io/envoyproxy/gateway-helm
+    version: v1.9.2
+    needs: [kube-system/cilium]
+    values: [values/envoy-gateway.yaml]
+    labels: { tier: platform }
+
+  - name: kube-prometheus-stack
+    namespace: monitoring
+    chart: prometheus-community/kube-prometheus-stack
+    version: 91.8.2
+    needs: [kube-system/cilium, local-path-storage/local-path-provisioner]
+    values: [values/kube-prometheus-stack.yaml.gotmpl]
+    disableValidationOnInstall: true
+    labels: { tier: observability }
+
+  - name: loki
+    namespace: logging
+    chart: grafana-community/loki
+    version: 18.13.7
+    needs: [kube-system/cilium, local-path-storage/local-path-provisioner]
+    values: [values/loki.yaml]
+    labels: { tier: observability }
+
+  - name: fluentd
+    namespace: logging
+    chart: fluent/fluentd
+    version: 0.6.0
+    needs: [logging/loki]
+    values: [values/fluentd.yaml.gotmpl]
+    labels: { tier: observability }
+
+{{- range $v := list "v1" "v2" }}
+  - name: hello-{{ $v }}
+    namespace: demo
+    chart: ../charts/hello
+    needs: [kube-system/cilium, kube-system/metrics-server]
+    values:
+      - version: {{ $v }}
+    labels: { tier: app }
+{{- end }}
+
+  - name: platform-config
+    namespace: envoy-gateway-system
+    chart: ../charts/platform-config
+    needs:
+      - envoy-gateway-system/envoy-gateway
+      - cert-manager/cert-manager
+      - monitoring/kube-prometheus-stack
+      - demo/hello-v1
+      - demo/hello-v2
+    values:
+      - domain: {{ .Values.domain }}
+    labels: { tier: app }

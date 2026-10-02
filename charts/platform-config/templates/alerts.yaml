@@ -24,22 +24,6 @@ spec:
 
     - name: hello.alerts
       rules:
-        - alert: HelloHighErrorRate
-          expr: hello:errors5xx:ratio5m > 0.05 and hello:requests:rate5m > 0.1
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: "hello: доля ответов 5xx {{ "{{" }} $value | humanizePercentage {{ "}}" }}"
-            description: "Более 5% запросов к hello.{{ .Values.domain }} завершаются ошибкой 5xx в течение 5 минут."
-        - alert: HelloHighLatency
-          expr: hello:latency_ms:p99_5m > 500
-          for: 10m
-          labels:
-            severity: warning
-          annotations:
-            summary: "hello: p99 задержки {{ "{{" }} $value | humanize {{ "}}" }} мс"
-            description: "99-й перцентиль времени ответа backend превышает 500 мс в течение 10 минут."
         - alert: HelloNoReadyReplicas
           expr: kube_deployment_status_replicas_available{namespace="demo", deployment=~"hello-v.*"} == 0
           for: 2m

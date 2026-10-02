@@ -1,6 +1,6 @@
 {
   "uid": "mts-hack-hello",
-  "title": "Hello service — RED, canary, логи",
+  "title": "Hello service — SLO, RED, canary, логи",
   "tags": [
     "mts-hack",
     "gateway-api",
@@ -13,10 +13,453 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "graphTooltip": 1,
   "panels": [
+    {
+      "type": "row",
+      "title": "SLO (окно 7 дней): доступность 99.9%, задержка 99% быстрее 250 мс",
+      "id": 22,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Доступность за 7 дней",
+      "id": 23,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Доля ответов без 5xx. Цель — 99.9%",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - slo:hello_errors:ratio_rate7d",
+          "instant": true
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.999
+              }
+            ]
+          },
+          "noValue": "нет трафика"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Остаток бюджета: доступность",
+      "id": 24,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Сколько бюджета ошибок на 7 дней ещё не израсходовано",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_availability:error_budget_remaining",
+          "instant": true
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          },
+          "noValue": "нет трафика"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Быстрее 250 мс за 7 дней",
+      "id": 25,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Доля запросов, обслуженных backend-ом быстрее 250 мс. Цель — 99%",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - slo:hello_slow:ratio_rate7d",
+          "instant": true
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "noValue": "нет трафика"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Остаток бюджета: задержка",
+      "id": 26,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Сколько бюджета по задержке ещё не израсходовано",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_latency:error_budget_remaining",
+          "instant": true
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          },
+          "noValue": "нет трафика"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn rate доступности",
+      "id": 27,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Burn rate = доля ошибок / бюджет. 1 — бюджет закончится ровно к концу окна SLO; 14.4 за 1 ч — быстрое сжигание (critical); 1 за 3 дня — медленное (warning).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_errors:ratio_rate1h / scalar(1 - slo:hello_availability:objective)",
+          "legendFormat": "1h"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_errors:ratio_rate6h / scalar(1 - slo:hello_availability:objective)",
+          "legendFormat": "6h"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_errors:ratio_rate1d / scalar(1 - slo:hello_availability:objective)",
+          "legendFormat": "1d"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_errors:ratio_rate3d / scalar(1 - slo:hello_availability:objective)",
+          "legendFormat": "3d"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Burn rate задержки",
+      "id": 28,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Burn rate = доля ошибок / бюджет. 1 — бюджет закончится ровно к концу окна SLO; 14.4 за 1 ч — быстрое сжигание (critical); 1 за 3 дня — медленное (warning).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_slow:ratio_rate1h / scalar(1 - slo:hello_latency:objective)",
+          "legendFormat": "1h"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_slow:ratio_rate6h / scalar(1 - slo:hello_latency:objective)",
+          "legendFormat": "6h"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_slow:ratio_rate1d / scalar(1 - slo:hello_latency:objective)",
+          "legendFormat": "1d"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:hello_slow:ratio_rate3d / scalar(1 - slo:hello_latency:objective)",
+          "legendFormat": "3d"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
     {
       "type": "row",
       "title": "Gateway: RED-метрики приложения hello",
@@ -26,7 +469,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 13
       },
       "panels": []
     },
@@ -43,7 +486,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 14
       },
       "targets": [
         {
@@ -90,12 +533,12 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Алерт HelloHighErrorRate срабатывает при > 5%",
+      "description": "Мгновенная доля ошибок; алерты — по burn rate бюджета SLO (блок SLO выше)",
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 14
       },
       "targets": [
         {
@@ -155,7 +598,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 14
       },
       "targets": [
         {
@@ -215,7 +658,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 14
       },
       "targets": [
         {
@@ -274,7 +717,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 18
       },
       "targets": [
         {
@@ -328,7 +771,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 18
       },
       "targets": [
         {
@@ -396,7 +839,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 26
       },
       "panels": []
     },
@@ -413,7 +856,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 27
       },
       "targets": [
         {
@@ -467,7 +910,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 27
       },
       "targets": [
         {
@@ -521,7 +964,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 22
+        "y": 35
       },
       "targets": [
         {
@@ -575,7 +1018,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 22
+        "y": 35
       },
       "targets": [
         {
@@ -625,7 +1068,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 43
       },
       "panels": []
     },
@@ -642,7 +1085,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 31
+        "y": 44
       },
       "targets": [
         {
@@ -696,7 +1139,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 31
+        "y": 44
       },
       "targets": [
         {
@@ -750,7 +1193,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 31
+        "y": 44
       },
       "targets": [
         {
@@ -809,7 +1252,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 52
       },
       "panels": []
     },
@@ -826,7 +1269,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 53
       },
       "targets": [
         {
@@ -880,7 +1323,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 53
       },
       "targets": [
         {
@@ -942,7 +1385,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 48
+        "y": 61
       },
       "targets": [
         {

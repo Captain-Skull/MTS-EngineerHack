@@ -97,6 +97,15 @@ for q in \
   fi
 done
 check "все targets Prometheus в состоянии up" eventually 120 no_down_targets
+rules_ok() {
+  svc_get monitoring kube-prometheus-stack-prometheus:9090 "/api/v1/rules" | python3 -c '
+import sys, json
+groups = json.load(sys.stdin)["data"]["groups"]
+names = {r["name"] for g in groups for r in g["rules"]}
+bad = [r["name"] for g in groups for r in g["rules"] if r.get("health") == "err"]
+sys.exit(1 if bad or "slo:hello_errors:ratio_rate5m" not in names else 0)'
+}
+check "правила Prometheus (включая SLO) загружены и вычисляются без ошибок" eventually 120 rules_ok
 prom 'up == 0' | python3 -c 'import sys,json;[print("     down:",r["metric"].get("job"),r["metric"].get("instance")) for r in json.load(sys.stdin)["data"]["result"]]'
 rps=$(prom_v 'sum(rate(nginx_http_requests_total[2m]))')
 echo "     текущий RPS приложения: ${rps:-н/д}"

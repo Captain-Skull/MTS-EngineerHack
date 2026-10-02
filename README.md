@@ -173,9 +173,11 @@ flowchart LR
 |---|---|---|
 | Машины | Multipass (опционально) | VM Ubuntu 24.04 для локального стенда на macOS/Linux |
 | ОС и кластер | Ansible + kubeadm | пакеты, ядро, containerd, kubelet, `kubeadm init/join` |
-| Платформа | Helmfile (16 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd |
+| Платформа | Helmfile (18 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd, Kyverno |
 | Приложение и связи | собственные Helm-чарты | `charts/hello`, `charts/platform-config` |
 | Точка входа | Make | `make deploy`, `make test`, `make info` |
+
+Почему выбраны именно эти компоненты, какие альтернативы рассматривались и чем за выбор приходится платить — в [архитектурных решениях (ADR)](docs/adr/README.md).
 
 ## Технологии и версии
 
@@ -519,13 +521,16 @@ deploy.sh                   развертывание одной командо
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
 renovate.json               правила автоматического обновления зависимостей
-scripts/                    install-tools, multipass, platform, smoke-test, info
-ansible/                    роли common, containerd, kubernetes, control_plane, worker
+scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, etcd-drill, info
+ansible/                    роли common, containerd, kubernetes, control_plane, worker; etcd-restore
 helmfile/                   описание платформы, values сторонних чартов, namespaces
 charts/hello/               демо-приложение
-charts/platform-config/     Gateway API, TLS, политики, мониторы, алерты, дашборд
+charts/platform-config/     Gateway API, TLS, политики трафика, мониторы, алерты, SLO, дашборд
+charts/etcd-backup/         CronJob снапшотов etcd с проверкой и алертами
+charts/policies/            политики допуска Kyverno (подпись образов, digest)
 images/fluentd/             Dockerfile и Gemfile образа Fluentd
 .github/workflows/          CI/CD
+docs/adr/                   архитектурные решения (ADR): что выбрано, альтернативы, последствия
 ```
 
 ## Известные ограничения

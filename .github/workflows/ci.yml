@@ -54,6 +54,9 @@ jobs:
           ansible-playbook -i ansible/inventory/local.ini ansible/site.yml --syntax-check
           pipx run --spec ansible-lint==26.9.0 ansible-lint ansible/
 
+      - name: Конфигурация Renovate
+        run: npx --yes --package renovate@44.132.2 -- renovate-config-validator --strict
+
       - name: Dockerfile (hadolint)
         uses: hadolint/hadolint-action@v3.5.0
         with:

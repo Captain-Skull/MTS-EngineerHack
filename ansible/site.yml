@@ -37,3 +37,9 @@
   become: true
   roles:
     - worker
+
+- name: Приведение узлов к CIS Kubernetes Benchmark
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - cis

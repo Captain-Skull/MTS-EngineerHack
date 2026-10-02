@@ -49,6 +49,10 @@ test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
 chaos: ## Тест отказоустойчивости: сбои под нагрузкой (поды, Envoy, drain узла, Loki)
 	@./scripts/chaos-test.sh
 
+.PHONY: cis
+cis: ## Проверка узлов по CIS Kubernetes Benchmark (kube-bench), отчёты в .state/cis
+	@./scripts/cis-bench.sh
+
 .PHONY: info
 info: ## Адрес Gateway, строка для /etc/hosts, URL интерфейсов и пример curl
 	@./scripts/info.sh

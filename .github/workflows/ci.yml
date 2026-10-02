@@ -132,6 +132,9 @@ jobs:
       - name: make test — smoke-тесты
         run: make test
 
+      - name: make cis — CIS Kubernetes Benchmark (kube-bench), только принятые отклонения
+        run: make cis
+
       - name: make chaos — сбои под нагрузкой без ошибок для клиентов
         run: make chaos
 

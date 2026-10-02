@@ -82,7 +82,10 @@
     - name: Права на каталог данных
       ansible.builtin.file:
         path: "{{ etcd_data }}"
+        owner: etcd
+        group: etcd
         mode: "0700"
+        recurse: true
 
     - name: Запуск etcd и kube-apiserver
       ansible.builtin.command: mv {{ etcd_stopped }}/{{ item }} {{ etcd_manifests }}/{{ item }}

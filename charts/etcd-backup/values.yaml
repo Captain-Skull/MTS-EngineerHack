@@ -4,7 +4,7 @@ hostPath: /var/backups/etcd
 alertAfterHours: 13
 
 etcd:
-  endpoint: https://127.0.0.1:2379
+  port: 2379
   pkiPath: /etc/kubernetes/pki/etcd
 
 image:

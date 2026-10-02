@@ -42,3 +42,10 @@ slo:
   latency:
     objective: 0.99
     thresholdMs: 250
+
+tracing:
+  samplingRate: 100
+  collector:
+    service: opentelemetry-collector
+    namespace: tracing
+    port: 4317

@@ -1,6 +1,6 @@
 {
   "uid": "mts-hack-hello",
-  "title": "Hello service — SLO, RED, canary, логи",
+  "title": "Hello service — SLO, RED, canary, логи, трейсы",
   "tags": [
     "mts-hack",
     "gateway-api",
@@ -13,7 +13,7 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "editable": true,
   "graphTooltip": 1,
   "panels": [
@@ -1402,6 +1402,82 @@
         "wrapLogMessage": true,
         "sortOrder": "Descending",
         "enableLogDetails": true
+      }
+    },
+    {
+      "type": "row",
+      "title": "Трейсинг (OpenTelemetry → Tempo)",
+      "id": 29,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 71
+      },
+      "panels": []
+    },
+    {
+      "type": "nodeGraph",
+      "title": "Граф сервисов по трейсам",
+      "id": 30,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Строится metrics-generator Tempo из пар клиентских и серверных спанов: user → Envoy Gateway → hello-v1 / hello-v2. Числа на рёбрах — запросы, видно canary-разделение",
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 0,
+        "y": 72
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "serviceMap"
+        }
+      ],
+      "options": {}
+    },
+    {
+      "type": "table",
+      "title": "Последние трейсы hello",
+      "id": 31,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "TraceQL: трейсы, прошедшие через hello. Клик по Trace ID открывает трейс; из трейса — переход к логам Loki по trace_id",
+      "gridPos": {
+        "h": 10,
+        "w": 14,
+        "x": 10,
+        "y": 72
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"hello-.*\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
       }
     }
   ],

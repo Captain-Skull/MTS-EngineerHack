@@ -4,8 +4,8 @@ replicas: 2
 
 image:
   repository: nginxinc/nginx-unprivileged
-  tag: 1.31.6-alpine
-  digest: sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
+  tag: 1.31.6-alpine-otel
+  digest: sha256:3468957f1d95cf24ef94e9da7a3c2c9412ea076d704a16e2ef289aa1349413e6
 
 exporter:
   image:
@@ -27,3 +27,8 @@ networkPolicy:
   enabled: true
   gatewayNamespace: envoy-gateway-system
   monitoringNamespace: monitoring
+
+tracing:
+  enabled: true
+  endpoint: opentelemetry-collector.tracing.svc:4317
+  collectorNamespace: tracing

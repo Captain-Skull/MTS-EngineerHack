@@ -79,6 +79,25 @@ found="$(loki_find "${nginx_q}")"
 [[ -n "${found}" ]] && echo "     ${found:0:200}…"
 check "тот же запрос в access-логе Envoy Gateway (сквозной request_id)" eventually 60 has_log "${envoy_q}"
 
+step "2.5 Трейсинг (Envoy, nginx → OpenTelemetry Collector → Tempo)"
+TRACE_ID="$(python3 -c 'import secrets;print(secrets.token_hex(16))')"
+c -H "traceparent: 00-${TRACE_ID}-$(python3 -c 'import secrets;print(secrets.token_hex(8))')-01" -o /dev/null "https://${H}/"
+echo "     отправлен запрос с traceparent, trace_id: ${TRACE_ID}"
+trace_services() {
+  svc_get tracing tempo:3200 "/api/v2/traces/${TRACE_ID}" 2>/dev/null | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+names = set()
+for b in d.get("trace", d).get("resourceSpans", d.get("batches", [])):
+    for a in b.get("resource", {}).get("attributes", []):
+        if a["key"] == "service.name":
+            names.add(a["value"].get("stringValue", ""))
+print(" ".join(sorted(names)))'
+}
+has_full_trace() { local s; s="$(trace_services)"; [[ "${s}" == *hello-v* && "${s}" != "${s/envoy/}" ]]; }
+check "трейс запроса найден в Tempo и содержит спаны Envoy и nginx" eventually 90 has_full_trace
+echo "     сервисы в трейсе: $(trace_services)"
+
 step "3. Мониторинг (Prometheus)"
 no_down_targets() { test "$(prom_n 'up == 0')" = 0; }
 has_series() { test "$(prom_n "$1")" -gt 0 2>/dev/null; }
@@ -89,7 +108,8 @@ for q in \
   'fluentd_output_status_emit_records' \
   'node_cpu_seconds_total' \
   'kube_pod_status_ready' \
-  'hubble_flows_processed_total'; do
+  'hubble_flows_processed_total' \
+  'traces_spanmetrics_calls_total'; do
   if eventually 180 has_series "${q}"; then
     ok "PromQL ${q} → $(prom_n "${q}") рядов"
   else

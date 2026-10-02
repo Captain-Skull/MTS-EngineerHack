@@ -18,6 +18,8 @@ repositories:
     url: https://kubernetes-sigs.github.io/metrics-server
   - name: kubelet-csr-approver
     url: https://postfinance.github.io/kubelet-csr-approver
+  - name: open-telemetry
+    url: https://open-telemetry.github.io/opentelemetry-helm-charts
 
 helmDefaults:
   wait: true
@@ -110,6 +112,22 @@ releases:
     values: [values/loki.yaml]
     labels: { tier: observability }
 
+  - name: tempo
+    namespace: tracing
+    chart: grafana-community/tempo
+    version: 3.1.0
+    needs: [kube-system/cilium, local-path-storage/local-path-provisioner, monitoring/kube-prometheus-stack]
+    values: [values/tempo.yaml]
+    labels: { tier: observability }
+
+  - name: opentelemetry-collector
+    namespace: tracing
+    chart: open-telemetry/opentelemetry-collector
+    version: 0.175.0
+    needs: [tracing/tempo]
+    values: [values/opentelemetry-collector.yaml]
+    labels: { tier: observability }
+
   - name: fluentd
     namespace: logging
     chart: fluent/fluentd
@@ -122,7 +140,7 @@ releases:
   - name: hello-{{ $v }}
     namespace: demo
     chart: ../charts/hello
-    needs: [kube-system/cilium, kube-system/metrics-server]
+    needs: [kube-system/cilium, kube-system/metrics-server, tracing/opentelemetry-collector]
     values:
       - version: {{ $v }}
     labels: { tier: app }
@@ -135,6 +153,7 @@ releases:
       - envoy-gateway-system/envoy-gateway
       - cert-manager/cert-manager
       - monitoring/kube-prometheus-stack
+      - tracing/opentelemetry-collector
       - demo/hello-v1
       - demo/hello-v2
     values:

@@ -21,6 +21,19 @@ spec:
     metrics:
       prometheus: {}
       enableVirtualHostStats: true
+    tracing:
+      samplingRate: {{ .Values.tracing.samplingRate }}
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - name: {{ .Values.tracing.collector.service }}
+            namespace: {{ .Values.tracing.collector.namespace }}
+            port: {{ .Values.tracing.collector.port }}
+      customTags:
+        k8s.cluster:
+          type: Literal
+          literal:
+            value: mts-hack
     accessLog:
       settings:
         - format:
@@ -28,6 +41,7 @@ spec:
             json:
               time: "%START_TIME%"
               request_id: "%REQ(X-REQUEST-ID)%"
+              trace_id: "%TRACE_ID%"
               client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
               method: "%REQ(:METHOD)%"
               host: "%REQ(:AUTHORITY)%"
@@ -120,3 +134,18 @@ spec:
     alpnProtocols: [h2, http/1.1]
   headers:
     requestID: PreserveOrGenerate
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: envoy-proxy-tracing
+  namespace: {{ .Values.tracing.collector.namespace }}
+spec:
+  from:
+    - group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      namespace: {{ .Values.gateway.namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: {{ .Values.tracing.collector.service }}

@@ -16,6 +16,7 @@
 - [Проверка приложения и Gateway API](#проверка-приложения-и-gateway-api)
 - [Проверка мониторинга](#проверка-мониторинга)
 - [Проверка логирования](#проверка-логирования)
+- [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Дополнительные возможности](#дополнительные-возможности)
 - [CI/CD](#cicd)
@@ -38,7 +39,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 25 автоматических проверок: приложение через Gateway API, метрики в Prometheus, логи в Loki.
+4. `make test` — 27 автоматических проверок: приложение через Gateway API, метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 
@@ -140,17 +141,27 @@ flowchart LR
             F[Fluentd<br/>DaemonSet] --> L[(Loki)]
         end
 
+        subgraph TR[tracing]
+            OC[OpenTelemetry<br/>Collector] --> T[(Tempo)]
+        end
+
         V1 -. "/metrics (exporter)" .-> P
         GW -. "/stats/prometheus" .-> P
         V1 -. "JSON access-лог → /var/log/containers" .-> F
         GW -. "JSON access-лог" .-> F
         L --> G
+        GW -. "спаны OTLP" .-> OC
+        V1 -. "спаны OTLP" .-> OC
+        T --> G
+        T -. "граф сервисов, span-метрики" .-> P
     end
 ```
 
 **Путь запроса.** Запрос на IP узла:443 перехватывает eBPF-программа Cilium (сервис Envoy имеет тип LoadBalancer, адреса — IP узлов) и направляет в под Envoy. Envoy терминирует TLS (wildcard-сертификат `*.demo.test` от cert-manager), по `HTTPRoute` выбирает версию приложения (canary 90/10, заголовок `X-Canary`, путь `/v1` `/v2`) и проксирует в Service. NetworkPolicy разрешает приложению входящий трафик только от Envoy и Prometheus.
 
 **Путь лога.** nginx и Envoy пишут JSON access-логи в stdout → containerd сохраняет их в файлы на узле → Fluentd (по поду на узел) читает файлы, добавляет метаданные Kubernetes, разбирает JSON и отправляет в Loki → просмотр в Grafana. Envoy генерирует `X-Request-Id`, nginx пишет его в свой лог: один запрос находится в логах обоих компонентов.
+
+**Путь трейса.** Envoy начинает (или продолжает, если клиент прислал W3C `traceparent`) трейс и передаёт контекст в nginx; оба отправляют спаны по OTLP в OpenTelemetry Collector, который добавляет атрибуты Kubernetes и пересылает их в Tempo. Tempo строит из трейсов граф сервисов и метрики спанов и записывает их в Prometheus. `trace_id` есть в access-логах Envoy и nginx: в Grafana можно перейти от строки лога к трейсу и обратно.
 
 **Путь метрики.** Prometheus по ServiceMonitor/PodMonitor собирает метрики nginx (sidecar-экспортер), Envoy, Cilium/Hubble, узлов, Kubernetes, control plane, Fluentd, Loki и cert-manager.
 
@@ -160,7 +171,7 @@ flowchart LR
 |---|---|---|
 | Машины | Multipass (опционально) | VM Ubuntu 24.04 для локального стенда на macOS/Linux |
 | ОС и кластер | Ansible + kubeadm | пакеты, ядро, containerd, kubelet, `kubeadm init/join` |
-| Платформа | Helmfile (13 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование |
+| Платформа | Helmfile (16 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd |
 | Приложение и связи | собственные Helm-чарты | `charts/hello`, `charts/platform-config` |
 | Точка входа | Make | `make deploy`, `make test`, `make info` |
 
@@ -177,7 +188,9 @@ flowchart LR
 | kube-prometheus-stack | 91.8.2 | Prometheus 3.15.0, Alertmanager 0.34.1, Grafana 13.2.3, node-exporter 1.12.1, kube-state-metrics 2.20.0 |
 | **Fluentd** | **1.19.3** | сбор логов (собственный multi-arch образ с плагином Loki) |
 | Loki | 3.7.8 (чарт grafana-community 18.13.7) | хранилище логов |
-| nginx (unprivileged) | 1.31.6 | демо-приложение + nginx-prometheus-exporter 1.5.3 |
+| Tempo | 3.1.0 | хранилище трейсов, metrics-generator (граф сервисов, span-метрики) |
+| OpenTelemetry Collector | 0.161.0 (чарт 0.175.0) | приём спанов OTLP, атрибуты Kubernetes, отправка в Tempo |
+| nginx (unprivileged, `-otel`) | 1.31.6 | демо-приложение с модулем OpenTelemetry + nginx-prometheus-exporter 1.5.3 |
 | metrics-server | 0.9.0 | метрики ресурсов для HPA |
 | kubelet-csr-approver | 1.2.15 | одобрение serving-сертификатов kubelet |
 | local-path-provisioner | 0.0.37 | PersistentVolume на дисках узлов |
@@ -366,6 +379,21 @@ kubectl get --raw '/api/v1/namespaces/logging/services/loki:3100/proxy/loki/api/
 
 Этот же сценарий автоматически выполняет `make test`.
 
+## Проверка трейсинга
+
+**Что собирается:** спаны Envoy Gateway (входящий запрос и вызов backend-а с именем правила HTTPRoute) и nginx (модуль `ngx_otel_module`) с контекстом W3C Trace Context; семплирование 100% (настраивается в `charts/platform-config/values.yaml`). **Куда:** OpenTelemetry Collector (namespace `tracing`) → Tempo (хранение 72 ч) → Grafana. Tempo metrics-generator строит граф сервисов (`traces_service_graph_request_total`) и метрики спанов (`traces_spanmetrics_*`) и отправляет их в Prometheus по remote write.
+
+**Сценарий проверки:** отправить запрос с собственным trace_id и найти трейс.
+
+```bash
+TID=$(openssl rand -hex 16)
+curl --cacert .state/ca.crt --resolve hello.demo.test:443:$GW \
+  -H "traceparent: 00-$TID-$(openssl rand -hex 8)-01" https://hello.demo.test/
+kubectl get --raw "/api/v1/namespaces/tracing/services/tempo:3200/proxy/api/v2/traces/$TID"
+```
+
+Трейс содержит спаны сервисов `public.envoy-gateway-system` и `hello-v1`/`hello-v2`. В Grafana → *Explore* → *Tempo* можно найти трейс по ID или TraceQL (`{ resource.service.name =~ "hello-.*" }`), открыть **Service Graph** (user → Envoy → hello-v1/v2 с числом запросов — видно canary) и перейти к логам этого запроса в Loki; из строки лога в Loki ссылка «Открыть трейс» ведёт в Tempo. На дашборде «Hello service» — раздел «Трейсинг»: граф сервисов и последние трейсы. `make test` выполняет эту проверку автоматически.
+
 ## Резервное копирование etcd
 
 etcd хранит всё состояние кластера; его потеря без резервной копии означает потерю кластера.
@@ -380,7 +408,7 @@ etcd хранит всё состояние кластера; его потер�
 
 **Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
 
-**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 14 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов.
+**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 14 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
 
 **Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения и Envoy, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами.
 

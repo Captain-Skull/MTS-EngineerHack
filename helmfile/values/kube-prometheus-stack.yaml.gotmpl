@@ -19,6 +19,7 @@ prometheus:
     retention: 7d
     retentionSize: 8GB
     enableFeatures: [exemplar-storage]
+    enableRemoteWriteReceiver: true
     externalUrl: https://prometheus.{{ .Values.domain }}
     resources:
       requests: { cpu: 200m, memory: 512Mi }
@@ -74,10 +75,33 @@ grafana:
       jsonData:
         maxLines: 1000
         derivedFields:
-          - name: request_id
-            matcherType: label
-            matcherRegex: request_id
+          - name: TraceID
+            matcherType: regex
+            matcherRegex: '"trace_id":"([0-9a-f]{32})"'
+            datasourceUid: tempo
             url: '$${__value.raw}'
+            urlDisplayLabel: Открыть трейс
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.tracing.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          filterByTraceID: true
+          spanStartTimeShift: -5m
+          spanEndTimeShift: 5m
+          customQuery: true
+          query: '{namespace=~"demo|envoy-gateway-system"} |= "$${__trace.traceId}"'
+        tracesToMetrics:
+          datasourceUid: prometheus
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+        search:
+          hide: false
 
 prometheus-node-exporter:
   resources:

@@ -1,0 +1,53 @@
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+command:
+  name: otelcol-contrib
+
+presets:
+  kubernetesAttributes:
+    enabled: true
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+  exporters:
+    debug: null
+    otlp/tempo:
+      endpoint: tempo.tracing.svc:4317
+      tls:
+        insecure: true
+  service:
+    pipelines:
+      logs: null
+      metrics: null
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [otlp/tempo]
+
+ports:
+  jaeger-compact: { enabled: false }
+  jaeger-thrift: { enabled: false }
+  jaeger-grpc: { enabled: false }
+  zipkin: { enabled: false }
+  metrics: { enabled: true }
+
+serviceMonitor:
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { memory: 256Mi }

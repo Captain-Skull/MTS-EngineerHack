@@ -10,7 +10,7 @@ gateway:
 canaryWeight: 10
 
 rateLimit:
-  requests: 50
+  requests: 100
   unit: Second
 
 ui:

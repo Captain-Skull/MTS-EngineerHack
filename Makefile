@@ -49,6 +49,10 @@ test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
 chaos: ## Тест отказоустойчивости: сбои под нагрузкой (поды, Envoy, drain узла, Loki)
 	@./scripts/chaos-test.sh
 
+.PHONY: load
+load: ## Нагрузочный тест k6 через Gateway и проверка автомасштабирования HPA (~6 мин)
+	@./scripts/load-test.sh
+
 .PHONY: cis
 cis: ## Проверка узлов по CIS Kubernetes Benchmark (kube-bench), отчёты в .state/cis
 	@./scripts/cis-bench.sh

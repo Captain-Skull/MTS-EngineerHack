@@ -19,6 +19,7 @@
 - [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Политики допуска и подпись образов](#политики-допуска-и-подпись-образов)
+- [Нагрузочный тест и автомасштабирование](#нагрузочный-тест-и-автомасштабирование)
 - [Соответствие CIS Kubernetes Benchmark](#соответствие-cis-kubernetes-benchmark)
 - [Тест отказоустойчивости](#тест-отказоустойчивости)
 - [Дополнительные возможности](#дополнительные-возможности)
@@ -217,7 +218,7 @@ flowchart LR
 | `HTTPRoute` | `envoy-gateway-system/http-to-https` | редирект HTTP → HTTPS (301) |
 | `HTTPRoute` | `grafana`, `prometheus`, `alertmanager`, `hubble` | служебные интерфейсы по hostname |
 | `ClientTrafficPolicy` | `public-client` | TLS ≥ 1.2, HTTP/2, генерация `X-Request-Id` |
-| `BackendTrafficPolicy` | `demo/hello` | rate limit 50 rps, retries, таймауты, circuit breaker, outlier detection |
+| `BackendTrafficPolicy` | `demo/hello` | rate limit 100 rps на реплику Envoy, retries, таймауты, circuit breaker, outlier detection |
 | `SecurityPolicy` | `*-basic-auth` | basic auth для Prometheus, Alertmanager, Hubble |
 
 ## Требования к среде
@@ -432,6 +433,67 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 # Error from server: admission webhook … denied the request
 ```
 
+## Нагрузочный тест и автомасштабирование
+
+`make load` ([`scripts/load-test.sh`](scripts/load-test.sh), сценарий [`scripts/k6/hello.js`](scripts/k6/hello.js)) запускает [k6](https://k6.io) как Job внутри кластера: нагрузка идёт **через Gateway по HTTPS** с проверкой сертификата по CA стенда, как от настоящего клиента. Нагрузка растёт до 150 запросов/с за минуту и держится 4 минуты. Скрипт каждые 15 секунд показывает реплики и загрузку CPU по HPA и проверяет два результата:
+
+- **пороги k6:** ошибок меньше 1%, p95 задержки меньше 300 мс (иначе k6 завершается с ошибкой);
+- **HPA действительно масштабировал** hello-v1 выше минимума.
+
+Метрики k6 отправляются в Prometheus (remote write) и видны на дашборде «Hello service» в разделе «Нагрузочный тест k6» вместе с репликами и загрузкой CPU. Параметры: `LOAD_RATE`, `LOAD_RAMP`, `LOAD_HOLD`.
+
+Тест помог настроить параметры по данным, а не наугад:
+- при 150 запросах/с nginx на статике потребляет около 12m CPU на под, в покое — около 3m. Запрос CPU контейнера nginx снижен с 20m до **10m**, чтобы requests отражали реальное потребление и HPA (цель 70%) реагировал на рабочую нагрузку;
+- rate limit 50 запросов/с на реплику Envoy оказался ниже рабочей нагрузки — поднят до **100** (200 на кластер при 2 репликах).
+
+Вывод на трёхузловом стенде:
+
+```text
+[load] load-20261002-222635: до 150 запросов/с на https://hello.demo.test/ (разгон 1m, удержание 4m), метрики k6 → Prometheus
+  время v1         v2         CPU v1       статус k6
+  0s       2          2          8%           running
+  15s      2          2          ?%           running
+  31s      2          2          60%          running
+  46s      2          2          46%          running
+  61s      2          2          76%          running
+  76s      2          2          80%          running
+  92s      3          2          106%         running
+  107s     3          2          96%          running
+  122s     3          2          75%          running
+  138s     3          2          73%          running
+  153s     3          2          71%          running
+  168s     3          2          77%          running
+  184s     3          2          66%          running
+  199s     3          2          66%          running
+  214s     3          2          66%          running
+  229s     3          2          66%          running
+  245s     3          2          68%          running
+  260s     3          2          73%          running
+  275s     3          2          68%          running
+  290s     3          2          71%          running
+  306s     3          2          64%          running
+  321s     3          2          64%          running
+  336s     3          2          55%          SuccessCriteriaMet Complete
+  █ THRESHOLDS
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+    http_req_duration{expected_response:true}
+    ✓ 'p(95)<300' p(95)=6.69ms
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+  █ TOTAL RESULTS
+    checks_total.......: 42891   129.972364/s
+    checks_succeeded...: 100.00% 42891 out of 42891
+    checks_failed......: 0.00%   0 out of 42891
+    ✓ status 200
+    HTTP
+    http_req_duration..............: avg=2.77ms min=450.21µs med=1.73ms max=221.05ms p(90)=3.75ms p(95)=6.69ms
+    http_req_failed................: 0.00%  0 out of 42891
+    http_reqs......................: 42891  129.972364/s
+  ✔ пороги k6 выполнены: ошибок < 1%, p95 < 300 мс
+  ✔ HPA масштабировал hello-v1, реплики: 2 → 3
+```
+
 ## Соответствие CIS Kubernetes Benchmark
 
 `make cis` ([`scripts/cis-bench.sh`](scripts/cis-bench.sh)) запускает [kube-bench](https://github.com/aquasecurity/kube-bench) на каждом узле (Job с `nodeName`, только чтение файлов узла) и проверяет кластер по **CIS Kubernetes Benchmark 1.12** — последней версии бенчмарка для kubeadm в kube-bench 0.16 (явной версии для Kubernetes 1.36 пока нет). Отчёты в JSON сохраняются в `.state/cis/`.
@@ -535,7 +597,7 @@ FAIL:
 
 **Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 18 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
 
-**Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения, Envoy и контроллера Envoy Gateway с PodDisruptionBudget, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами; всё это проверяется тестом отказоустойчивости `make chaos` под нагрузкой.
+**Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения, Envoy и контроллера Envoy Gateway с PodDisruptionBudget, HPA (2–6 реплик по CPU, проверяется нагрузочным тестом `make load`), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами; всё это проверяется тестом отказоустойчивости `make chaos` под нагрузкой.
 
 **Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest (обязательно для `demo` — политика Kyverno), проверка подписи cosign собственных образов при допуске в кластер (Kyverno), проверка sha256 всех загружаемых бинарников, соответствие CIS Kubernetes Benchmark с проверкой в CI (`make cis`).
 
@@ -566,7 +628,7 @@ deploy.sh                   развертывание одной командо
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
 renovate.json               правила автоматического обновления зависимостей
-scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, cis-bench, etcd-drill, info
+scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, load-test (+ k6/), cis-bench, etcd-drill, info
 ansible/                    роли common, containerd, kubernetes, control_plane, worker, cis; etcd-restore
 helmfile/                   описание платформы, values сторонних чартов, namespaces
 charts/hello/               демо-приложение

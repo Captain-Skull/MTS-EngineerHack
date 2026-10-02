@@ -140,5 +140,32 @@ else
 fi
 kubectl -n kube-system delete job "${backup_job}" --wait=false >/dev/null 2>&1
 
+step "5. Политики допуска (Kyverno)"
+SIGNED_IMAGE="${SIGNED_IMAGE:-ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1}"
+policy_ready() { test "$(kubectl get "$1" "$2" -o jsonpath='{.status.conditionStatus.ready}' 2>/dev/null)" = true; }
+check "ImageValidatingPolicy verify-image-signatures готова" eventually 120 policy_ready imagevalidatingpolicy verify-image-signatures
+check "ValidatingPolicy require-image-digest готова" eventually 120 policy_ready validatingpolicy require-image-digest
+dry_pod() { kubectl -n "$1" run "policy-smoke-${RANDOM}" --image="$2" --restart=Never --dry-run=server "${@:3}" 2>&1; }
+admitted="$(dry_pod default "${SIGNED_IMAGE}" -o jsonpath='{.spec.containers[0].image}')"
+check "подписанный CI образ допущен и закреплён по digest: ${admitted}" grep -q "^${SIGNED_IMAGE}@sha256:" <<<"${admitted}"
+denied="$(dry_pod default "${SIGNED_IMAGE%:*}:unsigned-smoke")"
+check "образ без подписи из ghcr.io/captain-skull отклонён" grep -q 'denied the request' <<<"${denied}"
+kubectl create namespace policy-smoke --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl get imagevalidatingpolicy verify-image-signatures -o json | python3 -c '
+import sys, json
+p = json.load(sys.stdin)
+spec = p["spec"]
+spec["attestors"][0]["cosign"]["keyless"]["identities"][0]["subjectRegExp"] = "^https://github\\.com/untrusted/repo/.*$"
+spec["matchConstraints"]["namespaceSelector"] = {"matchLabels": {"kubernetes.io/metadata.name": "policy-smoke"}}
+print(json.dumps({"apiVersion": p["apiVersion"], "kind": p["kind"], "metadata": {"name": "policy-smoke-untrusted-signer"}, "spec": spec}))
+' | kubectl apply -f - >/dev/null
+untrusted_denied() { local out; out="$(dry_pod policy-smoke "${SIGNED_IMAGE}")"; grep -q 'policy-smoke-untrusted-signer failed' <<<"${out}"; }
+check "тот же образ отклонён, если доверять другому подписанту (подпись реально проверяется)" eventually 60 untrusted_denied
+kubectl delete imagevalidatingpolicy policy-smoke-untrusted-signer --wait=false >/dev/null 2>&1
+kubectl delete namespace policy-smoke --wait=false >/dev/null 2>&1
+restricted='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"c","image":"nginxinc/nginx-unprivileged:1.31.6-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'
+denied="$(dry_pod demo nginxinc/nginx-unprivileged:1.31.6-alpine --overrides="${restricted}")"
+check "под без digest в namespace demo отклонён политикой require-image-digest" grep -q 'require-image-digest' <<<"${denied}"
+
 printf '\n\033[1mИтог: %d пройдено, %d провалено\033[0m\n' "${pass}" "${fail}"
 [[ "${fail}" -eq 0 ]]

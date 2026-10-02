@@ -20,6 +20,8 @@ repositories:
     url: https://postfinance.github.io/kubelet-csr-approver
   - name: open-telemetry
     url: https://open-telemetry.github.io/opentelemetry-helm-charts
+  - name: kyverno
+    url: https://kyverno.github.io/kyverno
 
 helmDefaults:
   wait: true
@@ -70,6 +72,20 @@ releases:
     namespace: kube-system
     chart: ../charts/etcd-backup
     needs: [monitoring/prometheus-operator-crds, kube-system/cilium]
+    labels: { tier: platform }
+
+  - name: kyverno
+    namespace: kyverno
+    chart: kyverno/kyverno
+    version: 3.9.1
+    needs: [monitoring/prometheus-operator-crds, kube-system/cilium]
+    values: [values/kyverno.yaml]
+    labels: { tier: platform }
+
+  - name: policies
+    namespace: kyverno
+    chart: ../charts/policies
+    needs: [kyverno/kyverno]
     labels: { tier: platform }
 
   - name: local-path-provisioner
@@ -132,7 +148,7 @@ releases:
     namespace: logging
     chart: fluent/fluentd
     version: 0.6.0
-    needs: [logging/loki]
+    needs: [logging/loki, kyverno/policies]
     values: [values/fluentd.yaml.gotmpl]
     labels: { tier: observability }
 
@@ -140,7 +156,7 @@ releases:
   - name: hello-{{ $v }}
     namespace: demo
     chart: ../charts/hello
-    needs: [kube-system/cilium, kube-system/metrics-server, tracing/opentelemetry-collector]
+    needs: [kube-system/cilium, kube-system/metrics-server, tracing/opentelemetry-collector, kyverno/policies]
     values:
       - version: {{ $v }}
     labels: { tier: app }

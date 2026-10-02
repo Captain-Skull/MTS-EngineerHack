@@ -1,0 +1,11 @@
+imageSignatures:
+  action: Deny
+  images:
+    - ghcr.io/captain-skull/*
+  issuer: https://token.actions.githubusercontent.com
+  subjectRegExp: '^https://github\.com/Captain-Skull/MTS-EngineerHack/\.github/workflows/image\.yml@refs/heads/main$'
+  rekorUrl: https://rekor.sigstore.dev
+
+imageDigest:
+  action: Deny
+  namespaces: [demo]

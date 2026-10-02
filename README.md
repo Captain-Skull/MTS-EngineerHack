@@ -18,6 +18,7 @@
 - [Проверка логирования](#проверка-логирования)
 - [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
+- [Политики допуска и подпись образов](#политики-допуска-и-подпись-образов)
 - [Тест отказоустойчивости](#тест-отказоустойчивости)
 - [Дополнительные возможности](#дополнительные-возможности)
 - [CI/CD](#cicd)
@@ -40,7 +41,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 27 автоматических проверок: приложение через Gateway API, метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd.
+4. `make test` — 33 автоматические проверки: приложение через Gateway API, метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd, политики допуска Kyverno.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 
@@ -192,6 +193,7 @@ flowchart LR
 | Tempo | 3.1.0 | хранилище трейсов, metrics-generator (граф сервисов, span-метрики) |
 | OpenTelemetry Collector | 0.161.0 (чарт 0.175.0) | приём спанов OTLP, атрибуты Kubernetes, отправка в Tempo |
 | nginx (unprivileged, `-otel`) | 1.31.6 | демо-приложение с модулем OpenTelemetry + nginx-prometheus-exporter 1.5.3 |
+| Kyverno | 1.19.1 (чарт 3.9.1) | политики допуска: проверка подписи образов cosign, образы только по digest |
 | metrics-server | 0.9.0 | метрики ресурсов для HPA |
 | kubelet-csr-approver | 1.2.15 | одобрение serving-сертификатов kubelet |
 | local-path-provisioner | 0.0.37 | PersistentVolume на дисках узлов |
@@ -405,6 +407,28 @@ etcd хранит всё состояние кластера; его потер�
 - **Учебное восстановление:** `make etcd-drill` — создаёт объект-метку, снимает снапшот, удаляет метку и создаёт другую, восстанавливает кластер и проверяет, что вернулось ровно состояние на момент снапшота. Выполняется в CI на каждом коммите вместе с повторным прогоном `make test`.
 - **Мониторинг:** алерты `EtcdBackupMissing` (нет успешного бэкапа больше 13 часов) и `EtcdBackupJobFailed`; smoke-тест запускает задание бэкапа и проверяет его успешное завершение.
 
+## Политики допуска и подпись образов
+
+Образ Fluentd собирается в CI и подписывается **cosign keyless** (подпись через OIDC-токен GitHub Actions, запись в прозрачный журнал Rekor). Kyverno ([`charts/policies`](charts/policies)) проверяет эту подпись **при каждом создании пода** — так цепочка поставок замкнута: «собрано CI этого репозитория → подписано → в кластере запускается только подписанное».
+
+| Политика | Тип | Что делает |
+|---|---|---|
+| `verify-image-signatures` | ImageValidatingPolicy, `Deny` | Образы `ghcr.io/captain-skull/*` допускаются, только если подписаны workflow `image.yml` этого репозитория из ветки `main` (проверяются издатель OIDC, identity и запись в Rekor). Проверенный образ закрепляется по digest — тег нельзя подменить между проверкой и запуском |
+| `require-image-digest` | ValidatingPolicy (CEL), `Deny` | В namespace приложения `demo` контейнеры обязаны ссылаться на образ по `@sha256:…`. Проверка срабатывает уже на Deployment, а не только на поде |
+
+- **Надёжность:** webhook работает в режиме `failurePolicy: Fail` (без проверки под не создаётся), поэтому admission controller Kyverno запущен в 2 репликах с PodDisruptionBudget и распределением по узлам; `make chaos` подтверждает, что drain узла проходит без ошибок. Алерты: `KyvernoAdmissionUnavailable` (critical) и `KyvernoAdmissionDenials` (info).
+- **Проверка (`make test`):** подписанный образ допускается и закрепляется по digest; образ без подписи отклоняется; **тот же подписанный образ отклоняется**, если временно доверять другому подписанту (доказывает, что подпись действительно проверяется, а не только наличие образа); под без digest в `demo` отклоняется.
+- **В CI** образ Fluentd собирается из исходников pull request как `ci.local/fluentd-k8s-loki:ci`: он не публикуется и не подписывается, поэтому под политику подписи не попадает. Сама политика в CI работает в режиме `Deny` и проверяется smoke-тестом на опубликованном образе.
+
+Попробовать вручную:
+
+```bash
+kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1 --dry-run=server -o jsonpath='{.spec.containers[0].image}'
+# ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1@sha256:79a7…
+kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-run=server
+# Error from server: admission webhook … denied the request
+```
+
 ## Тест отказоустойчивости
 
 `make chaos` ([`scripts/chaos-test.sh`](scripts/chaos-test.sh)) проверяет, что меры надёжности действительно работают: под постоянной нагрузкой (3 потока HTTPS-запросов через Gateway) последовательно устраиваются сбои, и **каждый ответ клиенту** должен быть `200`. Допустимое число ошибок задаётся `CHAOS_MAX_ERRORS` (по умолчанию 0).
@@ -462,11 +486,11 @@ etcd хранит всё состояние кластера; его потер�
 
 **Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
 
-**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 14 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
+**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 18 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
 
 **Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения, Envoy и контроллера Envoy Gateway с PodDisruptionBudget, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами; всё это проверяется тестом отказоустойчивости `make chaos` под нагрузкой.
 
-**Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest, проверка sha256 всех загружаемых бинарников.
+**Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest (обязательно для `demo` — политика Kyverno), проверка подписи cosign собственных образов при допуске в кластер (Kyverno), проверка sha256 всех загружаемых бинарников.
 
 **Автоматизация:** одна команда, идемпотентность (подтверждается в CI), зафиксированные версии всех зависимостей, инструменты устанавливаются в каталог проекта без изменения системы, три режима развертывания (одна машина, несколько серверов, Multipass).
 
@@ -515,6 +539,8 @@ images/fluentd/             Dockerfile и Gemfile образа Fluentd
 - **Демо-домен `demo.test`** требует записи в `/etc/hosts` или `curl --resolve`.
 - **Rate limit локальный** — предел на каждую реплику Envoy, а не общий на кластер.
 - **Привилегированные namespace** `monitoring`, `logging`, `local-path-storage`: node-exporter, Fluentd и local-path требуют доступа к узлу.
+- **Kyverno 1.19 официально протестирован на Kubernetes 1.33–1.35**, кластер — 1.36 (выбран по совместимости Cilium и Envoy Gateway). Работа политик на 1.36 подтверждается e2e в CI и smoke-тестами на каждом коммите.
+- **Проверка подписи требует доступа к GHCR и Rekor** в момент создания пода: при недоступности интернета поды с собственными образами не создаются (fail-closed — осознанный выбор в пользу безопасности).
 - Для установки нужен доступ в интернет (пакеты Ubuntu, pkgs.k8s.io, GitHub, реестры образов и чартов).
 
 ## Удаление

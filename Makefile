@@ -45,6 +45,10 @@ lab: vms deploy ## Multipass-стенд + полное развертывани�
 test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
 	@./scripts/smoke-test.sh
 
+.PHONY: chaos
+chaos: ## Тест отказоустойчивости: сбои под нагрузкой (поды, Envoy, drain узла, Loki)
+	@./scripts/chaos-test.sh
+
 .PHONY: info
 info: ## Адрес Gateway, строка для /etc/hosts, URL интерфейсов и пример curl
 	@./scripts/info.sh

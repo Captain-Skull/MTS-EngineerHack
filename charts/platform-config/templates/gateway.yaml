@@ -11,8 +11,18 @@ spec:
         type: LoadBalancer
         loadBalancerClass: io.cilium/node
         externalTrafficPolicy: Cluster
+      envoyPDB:
+        minAvailable: 1
       envoyDeployment:
         replicas: {{ .Values.gateway.proxyReplicas }}
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  gateway.envoyproxy.io/owning-gateway-name: {{ .Values.gateway.name }}
         container:
           resources:
             requests: { cpu: 50m, memory: 64Mi }

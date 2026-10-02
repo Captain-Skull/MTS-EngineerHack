@@ -136,6 +136,9 @@ jobs:
       - name: make test — smoke-тесты
         run: make test
 
+      - name: make chaos — сбои под нагрузкой без ошибок для клиентов
+        run: make chaos
+
       - name: Учебное восстановление etcd из снапшота
         run: |
           make etcd-drill

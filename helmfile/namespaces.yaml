@@ -59,3 +59,10 @@ metadata:
   name: kube-system
   labels:
     mts-hack/gateway-access: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

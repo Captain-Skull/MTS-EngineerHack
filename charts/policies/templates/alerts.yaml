@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kyverno
+  namespace: monitoring
+spec:
+  groups:
+    - name: kyverno.alerts
+      rules:
+        - alert: KyvernoAdmissionUnavailable
+          expr: absent(up{namespace="kyverno", pod=~"kyverno-admission-controller-.*"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kyverno admission controller недоступен"
+            description: "Политики работают в режиме failurePolicy: Fail — без Kyverno не создаются поды с образами из собственного реестра."
+        - alert: KyvernoAdmissionDenials
+          expr: sum by (resource_namespace, resource_kind) (increase(kyverno_admission_requests_total{request_allowed="false"}[10m])) > 0
+          for: 0m
+          labels:
+            severity: info
+          annotations:
+            summary: "Kyverno отклоняет {{ "{{" }} $labels.resource_kind {{ "}}" }} в namespace {{ "{{" }} $labels.resource_namespace {{ "}}" }}"
+            description: "Kyverno отклонил {{ "{{" }} $value | humanize {{ "}}" }} запросов за 10 минут — возможна попытка запустить неподписанный образ."

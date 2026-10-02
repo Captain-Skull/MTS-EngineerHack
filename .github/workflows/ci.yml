@@ -93,6 +93,9 @@ jobs:
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      FLUENTD_IMAGE_REPOSITORY: ci.local/fluentd-k8s-loki
+      FLUENTD_IMAGE_TAG: ci
     steps:
       - uses: actions/checkout@v7
 
@@ -101,27 +104,20 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           df -h /
 
-      - name: Сборка образа Fluentd (тот же Dockerfile, без внешнего registry)
-        run: docker build -t "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki:ci" images/fluentd
+      - name: Сборка образа Fluentd из исходников PR (не публикуется и не подписывается)
+        run: docker build -t "${FLUENTD_IMAGE_REPOSITORY}:${FLUENTD_IMAGE_TAG}" images/fluentd
 
       - name: make cluster — kubeadm на этом runner-е (all-in-one)
         run: make cluster
 
       - name: Загрузить образ Fluentd в containerd кластера
-        run: docker save "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki:ci" | sudo ctr -n k8s.io images import -
+        run: docker save "${FLUENTD_IMAGE_REPOSITORY}:${FLUENTD_IMAGE_TAG}" | sudo ctr -n k8s.io images import -
 
       - name: make platform — helmfile apply
-        env:
-          FLUENTD_IMAGE_TAG: ci
-        run: |
-          export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
-          make platform
+        run: make platform
 
       - name: Идемпотентность — повторный запуск без изменений
-        env:
-          FLUENTD_IMAGE_TAG: ci
         run: |
-          export FLUENTD_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fluentd-k8s-loki"
           make cluster 2>&1 | tee ansible-rerun.log
           if ! grep -qE 'changed=0 ' ansible-rerun.log; then
             grep -B4 -E '^changed:' ansible-rerun.log | grep -E '^(TASK|changed:)' | head -10 | sed 's/^/::error title=Ansible changed::/'

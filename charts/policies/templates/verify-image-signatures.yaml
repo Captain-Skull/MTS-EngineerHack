@@ -1,0 +1,39 @@
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Проверка подписи образов
+    policies.kyverno.io/description: >-
+      Образы из собственного реестра допускаются только с подписью cosign keyless,
+      созданной workflow image.yml этого репозитория в ветке main. Образ закрепляется по digest.
+spec:
+  autogen:
+    podControllers:
+      controllers: []
+  validationActions: [{{ .Values.imageSignatures.action }}]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 20
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  matchImageReferences:
+    {{- range .Values.imageSignatures.images }}
+    - glob: {{ . | quote }}
+    {{- end }}
+  attestors:
+    - name: ci
+      cosign:
+        keyless:
+          identities:
+            - issuer: {{ .Values.imageSignatures.issuer | quote }}
+              subjectRegExp: {{ .Values.imageSignatures.subjectRegExp | squote }}
+        ctlog:
+          url: {{ .Values.imageSignatures.rekorUrl | quote }}
+  validations:
+    - message: образ должен быть подписан CI репозитория (cosign keyless, workflow image.yml, ветка main)
+      expression: images.containers.map(image, verifyImageSignatures(image, [attestors.ci])).all(e, e > 0)

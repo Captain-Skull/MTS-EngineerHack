@@ -310,7 +310,7 @@ GitHub Actions ([`.github/workflows`](.github/workflows)):
 - **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст) и `make test`. При ошибке сохраняется диагностика.
 - **image.yml:** сборка образа Fluentd для linux/amd64 и linux/arm64, публикация в GHCR (`ghcr.io/captain-skull/fluentd-k8s-loki`), SBOM и provenance, сканирование Trivy, keyless-подпись cosign. На pull request образ только собирается.
 
-Проверка подписи образа:
+Проверка подписи образа (cosign v3+; подпись хранится в формате OCI referrers):
 
 ```bash
 cosign verify ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1 \

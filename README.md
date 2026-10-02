@@ -16,6 +16,7 @@
 - [Проверка приложения и Gateway API](#проверка-приложения-и-gateway-api)
 - [Проверка мониторинга](#проверка-мониторинга)
 - [Проверка логирования](#проверка-логирования)
+- [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Дополнительные возможности](#дополнительные-возможности)
 - [CI/CD](#cicd)
 - [Структура репозитория](#структура-репозитория)
@@ -37,7 +38,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 24 автоматические проверки: приложение через Gateway API, метрики в Prometheus, логи в Loki.
+4. `make test` — 25 автоматических проверок: приложение через Gateway API, метрики в Prometheus, логи в Loki.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 
@@ -77,34 +78,37 @@ make info
   ✔ HTTPRoute demo/hello Accepted
      адрес Gateway: 192.168.252.7
   ✔ HTTP → 301 редирект на HTTPS (получено 301)
-  ✔ HTTPS (TLS проверен по CA стенда) → «Hello World!»: Hello World! version=v1 pod=hello-v1-d4849fdd-fzm69
+  ✔ HTTPS (TLS проверен по CA стенда) → «Hello World!»: Hello World! version=v1 pod=hello-v1-d4849fdd-pjqbd
   ✔ X-Canary: always → версия v2
   ✔ /v1 → версия v1 (URLRewrite)
   ✔ /v2 → версия v2 (URLRewrite)
-  ✔ canary: 6/40 запросов на v2 (ожидается ~10%)
+  ✔ canary: 4/40 запросов на v2 (ожидается ~10%)
   ✔ Prometheus UI без пароля → 401 (получено 401)
   ✔ Prometheus UI с basic auth → 200 (получено 200)
   ✔ Grafana через Gateway /api/health
 
 2. Логирование (nginx → Fluentd → Loki)
-     отправлен запрос с X-Request-Id: smoke-1790944714-16962
-  ✔ access-лог запроса (nginx) найден в Loki: {namespace="demo", container="nginx"} |= "smoke-1790944714-16962"
-     {"time":"2026-10-02T15:38:34.719529516+03:00","kubernetes":{"pod_name":"hello-v1-d4849fdd-fzm69","pod_id":"59795575-d11b-48fc-b1c5-a47aaf93be0…
+     отправлен запрос с X-Request-Id: smoke-1790950226-9116
+  ✔ access-лог запроса (nginx) найден в Loki: {namespace="demo", container="nginx"} |= "smoke-1790950226-9116"
+     {"time":"2026-10-02T17:10:26.834180852+03:00","kubernetes":{"pod_name":"hello-v1-d4849fdd-fzm69","pod_id":"59795575-d11b-48fc-b1c5-a47aaf93be0…
   ✔ тот же запрос в access-логе Envoy Gateway (сквозной request_id)
 
 3. Мониторинг (Prometheus)
   ✔ PromQL up{job=~"hello-v.*"} → 4 рядов
   ✔ PromQL nginx_http_requests_total → 4 рядов
-  ✔ PromQL envoy_cluster_upstream_rq_total → 14 рядов
+  ✔ PromQL envoy_cluster_upstream_rq_total → 16 рядов
   ✔ PromQL fluentd_output_status_emit_records → 4 рядов
   ✔ PromQL node_cpu_seconds_total → 32 рядов
-  ✔ PromQL kube_pod_status_ready → 96 рядов
+  ✔ PromQL kube_pod_status_ready → 102 рядов
   ✔ PromQL hubble_flows_processed_total → 11 рядов
   ✔ все targets Prometheus в состоянии up
   ✔ правила Prometheus (включая SLO) загружены и вычисляются без ошибок
-     текущий RPS приложения: 16.20964970761348
+     текущий RPS приложения: 2.76175094979364
 
-Итог: 24 пройдено, 0 провалено
+4. Резервное копирование etcd
+  ✔ снапшот etcd снят и проверен: snapshot saved: /backups/etcd-snapshot-20261002T141043Z.db (37629984 bytes)
+
+Итог: 25 пройдено, 0 провалено
 ```
 
 </details>
@@ -362,13 +366,23 @@ kubectl get --raw '/api/v1/namespaces/logging/services/loki:3100/proxy/loki/api/
 
 Этот же сценарий автоматически выполняет `make test`.
 
+## Резервное копирование etcd
+
+etcd хранит всё состояние кластера; его потеря без резервной копии означает потерю кластера.
+
+- **Автоматически:** CronJob `kube-system/etcd-backup` (чарт [`charts/etcd-backup`](charts/etcd-backup)) каждые 6 часов на control-plane узле снимает снапшот (`etcdctl snapshot save`), **проверяет его целостность** (`etcdutl snapshot status`) и сохраняет в `/var/backups/etcd/etcd-snapshot-<время>.db`, храня 14 последних копий (3,5 дня).
+- **Вручную:** `make etcd-backup` — снапшот сейчас.
+- **Восстановление:** `make etcd-restore SNAPSHOT=/var/backups/etcd/etcd-snapshot-<время>.db` — Ansible-плейбук [`ansible/etcd-restore.yml`](ansible/etcd-restore.yml) останавливает static pods etcd и kube-apiserver, восстанавливает данные `etcdutl snapshot restore` образом etcd самого кластера, подменяет `/var/lib/etcd` (прежние данные сохраняются рядом), дожидается готовности API и, как рекомендует документация Kubernetes, перезапускает компоненты с закэшированным состоянием: kube-controller-manager, kube-scheduler, kubelet, а также Cilium (иначе eBPF-таблица сервиса `kubernetes` остаётся без бэкендов).
+- **Учебное восстановление:** `make etcd-drill` — создаёт объект-метку, снимает снапшот, удаляет метку и создаёт другую, восстанавливает кластер и проверяет, что вернулось ровно состояние на момент снапшота. Выполняется в CI на каждом коммите вместе с повторным прогоном `make test`.
+- **Мониторинг:** алерты `EtcdBackupMissing` (нет успешного бэкапа больше 13 часов) и `EtcdBackupJobFailed`; smoke-тест запускает задание бэкапа и проверяет его успешное завершение.
+
 ## Дополнительные возможности
 
 **Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
 
 **Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 14 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов.
 
-**Надёжность:** 2+ реплики приложения и Envoy, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами.
+**Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения и Envoy, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами.
 
 **Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest, проверка sha256 всех загружаемых бинарников.
 
@@ -379,7 +393,7 @@ kubectl get --raw '/api/v1/namespaces/logging/services/loki:3100/proxy/loki/api/
 GitHub Actions ([`.github/workflows`](.github/workflows)):
 
 - **ci.yml → lint:** gitleaks (секреты в истории), shellcheck, yamllint, ansible-lint (профиль production), hadolint, `helm lint`, рендеринг всей платформы и валидация 300+ манифестов по схемам Kubernetes 1.36 и CRD (kubeconform), Trivy misconfiguration.
-- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст) и `make test`. При ошибке сохраняется диагностика.
+- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст), `make test` и учебное восстановление etcd из снапшота (`make etcd-drill`) с повторным `make test`. При ошибке сохраняется диагностика.
 - **image.yml:** сборка образа Fluentd для linux/amd64 и linux/arm64, публикация в GHCR (`ghcr.io/captain-skull/fluentd-k8s-loki`), SBOM и provenance, сканирование Trivy, keyless-подпись cosign. На pull request образ только собирается.
 
 - **Renovate** ([`renovate.json`](renovate.json)): еженедельно проверяет все зафиксированные версии — Helm-чарты, образы (тег и digest вместе), GitHub Actions, гемы Fluentd, коллекции Ansible, а также версии в `versions.env`, `group_vars` и CI — и создаёт pull request с обновлением, который проверяет CI (включая e2e). Kubernetes обновляется только в пределах патч-версий: минорное обновление требует проверки совместимости и `kubeadm upgrade`. Сводка — issue «Dependency Dashboard».
@@ -410,6 +424,7 @@ images/fluentd/             Dockerfile и Gemfile образа Fluentd
 
 ## Известные ограничения
 
+- **Снапшоты etcd хранятся на диске control-plane узла.** От ошибок и случайного удаления защищают, от потери самого узла — нет; в production снапшоты дополнительно копируются во внешнее хранилище (S3, restic) или используется Velero.
 - **Один control-plane узел.** Нет отказоустойчивости API server и etcd; для production нужны 3 узла control plane и балансировщик перед API.
 - **Хранилище local-path.** Тома Prometheus и Loki привязаны к диску конкретного узла и не переживают его потерю; в production — сетевое или объектное хранилище (Ceph, S3).
 - **Loki в монолитном режиме**, одна реплика, хранение 72 часа; Prometheus — одна реплика, 7 дней.

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: etcd-backup
+description: Периодические снапшоты etcd кластера kubeadm с проверкой целостности, ротацией и алертами
+type: application
+version: 1.0.0
+appVersion: "3.6.8"

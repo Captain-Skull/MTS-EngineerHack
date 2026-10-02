@@ -64,6 +64,12 @@ releases:
           enabled: true
     labels: { tier: platform }
 
+  - name: etcd-backup
+    namespace: kube-system
+    chart: ../charts/etcd-backup
+    needs: [monitoring/prometheus-operator-crds, kube-system/cilium]
+    labels: { tier: platform }
+
   - name: local-path-provisioner
     namespace: local-path-storage
     chart: git::https://github.com/rancher/local-path-provisioner.git@deploy/chart/local-path-provisioner?ref=v0.0.37

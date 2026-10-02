@@ -1,0 +1,21 @@
+schedule: "0 */6 * * *"
+retention: 14
+hostPath: /var/backups/etcd
+alertAfterHours: 13
+
+etcd:
+  endpoint: https://127.0.0.1:2379
+  pkiPath: /etc/kubernetes/pki/etcd
+
+image:
+  repository: registry.k8s.io/etcd
+  tag: 3.6.8-0
+
+helperImage:
+  repository: busybox
+  tag: 1.37.0
+  digest: sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 256Mi }

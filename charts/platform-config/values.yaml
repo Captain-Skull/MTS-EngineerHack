@@ -34,3 +34,11 @@ ui:
     service: hubble-ui
     port: 80
     basicAuth: true
+
+slo:
+  window: 7d
+  availability:
+    objective: 0.999
+  latency:
+    objective: 0.99
+    thresholdMs: 250

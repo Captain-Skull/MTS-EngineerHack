@@ -1,0 +1,87 @@
+{{- $hello := `envoy_cluster_name=~"httproute/demo/hello/.*"` }}
+{{- $windows := list "5m" "30m" "1h" "2h" "6h" "1d" "3d" .Values.slo.window }}
+{{- $availBudget := printf "(1 - %v)" .Values.slo.availability.objective }}
+{{- $latencyBudget := printf "(1 - %v)" .Values.slo.latency.objective }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-hello
+  namespace: monitoring
+spec:
+  groups:
+    - name: slo.hello.sli
+      interval: 30s
+      rules:
+{{- range $w := $windows }}
+        - record: slo:hello_errors:ratio_rate{{ $w }}
+          expr: |
+            (sum(rate(envoy_cluster_upstream_rq_xx{ {{- $hello }}, envoy_response_code_class="5"}[{{ $w }}])) or vector(0))
+            /
+            sum(rate(envoy_cluster_upstream_rq_total{ {{- $hello }}}[{{ $w }}]))
+          labels:
+            slo: hello-availability
+        - record: slo:hello_slow:ratio_rate{{ $w }}
+          expr: |
+            1 - (
+              sum(rate(envoy_cluster_upstream_rq_time_bucket{ {{- $hello }}, le=~"{{ $.Values.slo.latency.thresholdMs }}(\\.0)?"}[{{ $w }}]))
+              /
+              sum(rate(envoy_cluster_upstream_rq_time_count{ {{- $hello }}}[{{ $w }}]))
+            )
+          labels:
+            slo: hello-latency
+{{- end }}
+
+    - name: slo.hello.budget
+      interval: 1m
+      rules:
+        - record: slo:hello_availability:objective
+          expr: vector({{ .Values.slo.availability.objective }})
+        - record: slo:hello_latency:objective
+          expr: vector({{ .Values.slo.latency.objective }})
+        - record: slo:hello_availability:error_budget_remaining
+          expr: 1 - slo:hello_errors:ratio_rate{{ .Values.slo.window }} / {{ $availBudget }}
+        - record: slo:hello_latency:error_budget_remaining
+          expr: 1 - slo:hello_slow:ratio_rate{{ .Values.slo.window }} / {{ $latencyBudget }}
+
+    - name: slo.hello.alerts
+      rules:
+{{- range $slo := list (dict "name" "Availability" "sli" "hello_errors" "budget" $availBudget "what" "ответов 5xx" "objective" $.Values.slo.availability.objective) (dict "name" "Latency" "sli" "hello_slow" "budget" $latencyBudget "what" (printf "запросов медленнее %v мс" $.Values.slo.latency.thresholdMs) "objective" $.Values.slo.latency.objective) }}
+        - alert: Hello{{ $slo.name }}BudgetBurnFast
+          expr: |
+            (
+              slo:{{ $slo.sli }}:ratio_rate1h > (14.4 * {{ $slo.budget }})
+              and
+              slo:{{ $slo.sli }}:ratio_rate5m > (14.4 * {{ $slo.budget }})
+            )
+            or
+            (
+              slo:{{ $slo.sli }}:ratio_rate6h > (6 * {{ $slo.budget }})
+              and
+              slo:{{ $slo.sli }}:ratio_rate30m > (6 * {{ $slo.budget }})
+            )
+          labels:
+            severity: critical
+            slo: hello-{{ lower $slo.name }}
+          annotations:
+            summary: "hello: бюджет ошибок SLO {{ mulf $slo.objective 100 }}% сгорает быстро"
+            description: "Доля {{ $slo.what }} за последний час — {{ "{{" }} $value | humanizePercentage {{ "}}" }}: при такой скорости бюджет на {{ $.Values.slo.window }} закончится за часы. Нужна реакция сейчас."
+        - alert: Hello{{ $slo.name }}BudgetBurnSlow
+          expr: |
+            (
+              slo:{{ $slo.sli }}:ratio_rate1d > (3 * {{ $slo.budget }})
+              and
+              slo:{{ $slo.sli }}:ratio_rate2h > (3 * {{ $slo.budget }})
+            )
+            or
+            (
+              slo:{{ $slo.sli }}:ratio_rate3d > {{ $slo.budget }}
+              and
+              slo:{{ $slo.sli }}:ratio_rate6h > {{ $slo.budget }}
+            )
+          labels:
+            severity: warning
+            slo: hello-{{ lower $slo.name }}
+          annotations:
+            summary: "hello: бюджет ошибок SLO {{ mulf $slo.objective 100 }}% расходуется быстрее плана"
+            description: "Доля {{ $slo.what }} стабильно выше допустимой: бюджет на {{ $.Values.slo.window }} будет исчерпан до конца окна. Разобрать в рабочее время."
+{{- end }}

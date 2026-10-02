@@ -254,9 +254,18 @@ histogram_quantile(0.99, sum by (le) (rate(envoy_cluster_upstream_rq_time_bucket
 kubectl get --raw '/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=nginx_http_requests_total'
 ```
 
-**Grafana** — `https://grafana.demo.test` → *Dashboards → MTS Hack → «Hello service — RED, canary, логи»*: RPS, доля 5xx, перцентили задержки, распределение трафика v1/v2, коды ответов по версиям из логов, ресурсы, HPA, состояние конвейера логов, лента access-логов. Также доступны стандартные дашборды kube-prometheus-stack (узлы, поды, API server, etcd).
+**Grafana** — `https://grafana.demo.test` → *Dashboards → MTS Hack → «Hello service — SLO, RED, canary, логи»*: SLO и остаток бюджета ошибок, burn rate, RPS, доля 5xx, перцентили задержки, распределение трафика v1/v2, коды ответов по версиям из логов, ресурсы, HPA, состояние конвейера логов, лента access-логов. Также доступны стандартные дашборды kube-prometheus-stack (узлы, поды, API server, etcd).
 
-**Алерты** (`charts/platform-config/templates/alerts.yaml`, раздел *Alerts* в Prometheus): доля 5xx > 5%, p99 > 500 мс, нет готовых реплик, недоступен Gateway, срабатывает rate limit, Fluentd не отправляет логи или копит буфер, Loki недоступен, сертификат истекает или не выпущен.
+**SLO и бюджет ошибок** (`charts/platform-config/templates/slo.yaml`, цели — в `charts/platform-config/values.yaml`, окно 7 дней по сроку хранения Prometheus):
+
+| SLO | SLI | Цель |
+|---|---|---|
+| Доступность | доля ответов backend-а hello без 5xx (метрики Envoy) | 99.9% |
+| Задержка | доля запросов, обслуженных быстрее 250 мс (гистограмма Envoy) | 99% |
+
+Алерты по **burn rate** (скорости расходования бюджета ошибок) по методике Google SRE с парами окон: `HelloAvailabilityBudgetBurnFast` / `HelloLatencyBudgetBurnFast` — critical, 14.4× за 1 ч и 5 мин или 6× за 6 ч и 30 мин; `...BudgetBurnSlow` — warning, 3× за 1 день и 2 ч или 1× за 3 дня и 6 ч. Короткое окно гасит алерт сразу после устранения проблемы. Проверка: в течение нескольких минут отправлять часть запросов на `https://hello.demo.test/error` → в Prometheus *Alerts* алерт `HelloAvailabilityBudgetBurnFast` переходит в `firing`; на дашборде растёт burn rate и падает остаток бюджета.
+
+**Остальные алерты** (`charts/platform-config/templates/alerts.yaml`): нет готовых реплик, target приложения недоступен, недоступен Gateway, срабатывает rate limit, Fluentd не отправляет логи, получает ошибки или копит буфер, Loki недоступен, сертификат истекает или не выпущен.
 
 ## Проверка логирования
 
@@ -294,7 +303,7 @@ kubectl get --raw '/api/v1/namespaces/logging/services/loki:3100/proxy/loki/api/
 
 **Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
 
-**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), собственный дашборд Grafana как код, 12 алертов и 4 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов.
+**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 14 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов.
 
 **Надёжность:** 2+ реплики приложения и Envoy, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами.
 

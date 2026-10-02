@@ -29,11 +29,17 @@ apiServer:
     - name: audit-log-path
       value: /var/log/kubernetes/audit/audit.log
     - name: audit-log-maxage
-      value: "7"
+      value: "30"
     - name: audit-log-maxbackup
-      value: "3"
+      value: "10"
     - name: audit-log-maxsize
       value: "100"
+    - name: profiling
+      value: "false"
+    - name: kubelet-certificate-authority
+      value: /etc/kubernetes/pki/ca.crt
+    - name: service-account-extend-token-expiration
+      value: "false"
   extraVolumes:
     - name: encryption
       hostPath: /etc/kubernetes/encryption
@@ -53,10 +59,14 @@ controllerManager:
   extraArgs:
     - name: bind-address
       value: {{ node_ip }}
+    - name: profiling
+      value: "false"
 scheduler:
   extraArgs:
     - name: bind-address
       value: {{ node_ip }}
+    - name: profiling
+      value: "false"
 etcd:
   local:
     extraArgs:

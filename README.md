@@ -19,6 +19,7 @@
 - [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Политики допуска и подпись образов](#политики-допуска-и-подпись-образов)
+- [Соответствие CIS Kubernetes Benchmark](#соответствие-cis-kubernetes-benchmark)
 - [Тест отказоустойчивости](#тест-отказоустойчивости)
 - [Дополнительные возможности](#дополнительные-возможности)
 - [CI/CD](#cicd)
@@ -431,6 +432,50 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 # Error from server: admission webhook … denied the request
 ```
 
+## Соответствие CIS Kubernetes Benchmark
+
+`make cis` ([`scripts/cis-bench.sh`](scripts/cis-bench.sh)) запускает [kube-bench](https://github.com/aquasecurity/kube-bench) на каждом узле (Job с `nodeName`, только чтение файлов узла) и проверяет кластер по **CIS Kubernetes Benchmark 1.12** — последней версии бенчмарка для kubeadm в kube-bench 0.16 (явной версии для Kubernetes 1.36 пока нет). Отчёты в JSON сохраняются в `.state/cis/`.
+
+Первый прогон на трёхузловом стенде: **96 PASS, 19 FAIL**. После исправлений — **110 PASS, 5 FAIL**, и все 5 — осознанные отклонения:
+
+| Исправлено | Где |
+|---|---|
+| `--profiling=false` у API server, controller-manager и scheduler (1.2.15, 1.3.2, 1.4.1) | конфигурация kubeadm |
+| ротация аудит-лога: `maxage 30`, `maxbackup 10`, `maxsize 100` (1.2.17–1.2.19) | конфигурация kubeadm |
+| API server проверяет сертификат kubelet по CA кластера (`--kubelet-certificate-authority`, 1.2.5) — возможно, потому что у kubelet настоящие serving-сертификаты | конфигурация kubeadm |
+| `--service-account-extend-token-expiration=false` (1.2.30) | конфигурация kubeadm |
+| права `600` на `kubelet.service` и `/var/lib/kubelet/config.yaml` на всех узлах (4.1.1, 4.1.9) | роль [`cis`](ansible/roles/cis) |
+| каталог данных etcd принадлежит пользователю `etcd:etcd` (1.1.12), в том числе после восстановления из снапшота | роль `cis`, `etcd-restore.yml` |
+
+| Отклонение | Причина |
+|---|---|
+| 1.3.7, 1.4.2 — controller-manager и scheduler слушают IP узла, а не `127.0.0.1` | Prometheus собирает их метрики; доступ к `/metrics` закрыт аутентификацией и авторизацией Kubernetes |
+| 4.3.1 — метрики kube-proxy на localhost | kube-proxy не установлен: его заменяет Cilium (eBPF), проверять нечего |
+
+Скрипт падает при любом FAIL вне этого списка, поэтому `make cis` в CI работает как защита от регрессий безопасности. WARN — в основном ручные проверки (организационные политики, RBAC), их kube-bench автоматически не оценивает.
+
+Изменение конфигурации kubeadm применяется и к уже работающему кластеру: роль `control_plane` перегенерирует манифесты static pods (`kubeadm init phase control-plane all`) и дожидается готовности API server; повторный запуск — `changed=0`.
+
+```text
+узел            PASS  FAIL  WARN  INFO
+k8s-cp            74     3    54     0
+k8s-w1            18     1     6     0
+k8s-w2            18     1     6     0
+итого            110     5    66     0
+
+FAIL:
+  k8s-cp       1.3.7    [принято] Ensure that the --bind-address argument is set to 127.0.0.1 (Automated)
+  k8s-cp       1.4.2    [принято] Ensure that the --bind-address argument is set to 127.0.0.1 (Automated)
+  k8s-cp       4.3.1    [принято] Ensure that the kube-proxy metrics service is bound to localhost (Automated)
+  k8s-w1       4.3.1    [принято] Ensure that the kube-proxy metrics service is bound to localhost (Automated)
+  k8s-w2       4.3.1    [принято] Ensure that the kube-proxy metrics service is bound to localhost (Automated)
+
+Принятые отклонения:
+  1.3.7    controller-manager слушает IP узла, а не 127.0.0.1: Prometheus собирает его метрики (доступ через authn/authz)
+  1.4.2    scheduler слушает IP узла, а не 127.0.0.1: Prometheus собирает его метрики (доступ через authn/authz)
+  4.3.1    kube-proxy не установлен — его заменяет Cilium (eBPF), проверять нечего
+```
+
 ## Тест отказоустойчивости
 
 `make chaos` ([`scripts/chaos-test.sh`](scripts/chaos-test.sh)) проверяет, что меры надёжности действительно работают: под постоянной нагрузкой (3 потока HTTPS-запросов через Gateway) последовательно устраиваются сбои, и **каждый ответ клиенту** должен быть `200`. Допустимое число ошибок задаётся `CHAOS_MAX_ERRORS` (по умолчанию 0).
@@ -492,7 +537,7 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 
 **Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения, Envoy и контроллера Envoy Gateway с PodDisruptionBudget, HPA (2–6 реплик по CPU), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами; всё это проверяется тестом отказоустойчивости `make chaos` под нагрузкой.
 
-**Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest (обязательно для `demo` — политика Kyverno), проверка подписи cosign собственных образов при допуске в кластер (Kyverno), проверка sha256 всех загружаемых бинарников.
+**Безопасность:** Pod Security Admission `restricted` для приложения (non-root, read-only FS, без capabilities, seccomp), NetworkPolicy, шифрование Secret в etcd (ключ генерируется на узле), аудит API server, настоящие serving-сертификаты kubelet (без `insecure-skip-verify`), TLS ≥ 1.2, отсутствие секретов в Git (пароли генерируются при развертывании), образы по digest (обязательно для `demo` — политика Kyverno), проверка подписи cosign собственных образов при допуске в кластер (Kyverno), проверка sha256 всех загружаемых бинарников, соответствие CIS Kubernetes Benchmark с проверкой в CI (`make cis`).
 
 **Автоматизация:** одна команда, идемпотентность (подтверждается в CI), зафиксированные версии всех зависимостей, инструменты устанавливаются в каталог проекта без изменения системы, три режима развертывания (одна машина, несколько серверов, Multipass).
 
@@ -501,7 +546,7 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 GitHub Actions ([`.github/workflows`](.github/workflows)):
 
 - **ci.yml → lint:** gitleaks (секреты в истории), shellcheck, yamllint, ansible-lint (профиль production), hadolint, `helm lint`, рендеринг всей платформы и валидация 300+ манифестов по схемам Kubernetes 1.36 и CRD (kubeconform), Trivy misconfiguration.
-- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст), `make test`, тест отказоустойчивости (`make chaos`) и учебное восстановление etcd из снапшота (`make etcd-drill`) с повторным `make test`. При ошибке сохраняется диагностика.
+- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст), `make test`, проверка CIS Benchmark (`make cis`), тест отказоустойчивости (`make chaos`) и учебное восстановление etcd из снапшота (`make etcd-drill`) с повторным `make test`. При ошибке сохраняется диагностика.
 - **image.yml:** сборка образа Fluentd для linux/amd64 и linux/arm64, публикация в GHCR (`ghcr.io/captain-skull/fluentd-k8s-loki`), SBOM и provenance, сканирование Trivy, keyless-подпись cosign. На pull request образ только собирается.
 
 - **Renovate** ([`renovate.json`](renovate.json)): еженедельно проверяет все зафиксированные версии — Helm-чарты, образы (тег и digest вместе), GitHub Actions, гемы Fluentd, коллекции Ansible, а также версии в `versions.env`, `group_vars` и CI — и создаёт pull request с обновлением, который проверяет CI (включая e2e). Kubernetes обновляется только в пределах патч-версий: минорное обновление требует проверки совместимости и `kubeadm upgrade`. Сводка — issue «Dependency Dashboard».
@@ -521,8 +566,8 @@ deploy.sh                   развертывание одной командо
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
 renovate.json               правила автоматического обновления зависимостей
-scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, etcd-drill, info
-ansible/                    роли common, containerd, kubernetes, control_plane, worker; etcd-restore
+scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, cis-bench, etcd-drill, info
+ansible/                    роли common, containerd, kubernetes, control_plane, worker, cis; etcd-restore
 helmfile/                   описание платформы, values сторонних чартов, namespaces
 charts/hello/               демо-приложение
 charts/platform-config/     Gateway API, TLS, политики трафика, мониторы, алерты, SLO, дашборд

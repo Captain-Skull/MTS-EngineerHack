@@ -1,0 +1,27 @@
+- name: Права на unit-файл kubelet (CIS 4.1.1)
+  ansible.builtin.file:
+    path: /lib/systemd/system/kubelet.service
+    mode: "0600"
+
+- name: Права на конфигурацию kubelet (CIS 4.1.9)
+  ansible.builtin.file:
+    path: /var/lib/kubelet/config.yaml
+    mode: "0600"
+
+- name: Владелец каталога данных etcd (CIS 1.1.12)
+  when: inventory_hostname in groups['control_plane']
+  block:
+    - name: Системный пользователь etcd
+      ansible.builtin.user:
+        name: etcd
+        system: true
+        shell: /usr/sbin/nologin
+        home: /var/lib/etcd
+        create_home: false
+    - name: Каталог /var/lib/etcd принадлежит etcd:etcd
+      ansible.builtin.file:
+        path: /var/lib/etcd
+        owner: etcd
+        group: etcd
+        mode: "0700"
+        recurse: true

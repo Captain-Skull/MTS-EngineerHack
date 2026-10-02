@@ -15,3 +15,4 @@ Architecture Decision Records — короткие записи о значим�
 | [0009](0009-kyverno-fail-closed.md) | Kyverno, проверка подписи в режиме fail-closed | принято |
 | [0010](0010-single-control-plane.md) | Один control-plane узел и проверяемые бэкапы etcd | принято, с ограничениями |
 | [0011](0011-chaos-testing.md) | Отказоустойчивость проверяется тестом под нагрузкой в CI | принято |
+| [0012](0012-cis-exceptions.md) | CIS Benchmark как защита от регрессий, с явными отклонениями | принято |

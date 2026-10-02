@@ -21,7 +21,6 @@ spec:
             app.kubernetes.io/name: etcd-backup
         spec:
           restartPolicy: OnFailure
-          hostNetwork: true
           nodeSelector:
             node-role.kubernetes.io/control-plane: ""
           tolerations:
@@ -39,13 +38,17 @@ spec:
               imagePullPolicy: IfNotPresent
               command:
                 - etcdctl
-                - --endpoints={{ .Values.etcd.endpoint }}
+                - --endpoints=https://$(HOST_IP):{{ .Values.etcd.port }}
                 - --cacert={{ $pki }}/ca.crt
                 - --cert={{ $pki }}/healthcheck-client.crt
                 - --key={{ $pki }}/healthcheck-client.key
                 - snapshot
                 - save
                 - /work/snapshot.db
+              env:
+                - name: HOST_IP
+                  valueFrom:
+                    fieldRef: { fieldPath: status.hostIP }
               securityContext: &secure
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

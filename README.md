@@ -8,6 +8,7 @@
 ## Содержание
 
 - [Быстрый старт](#быстрый-старт)
+- [Как это выглядит](#как-это-выглядит)
 - [Архитектура](#архитектура)
 - [Технологии и версии](#технологии-и-версии)
 - [Требования к среде](#требования-к-среде)
@@ -45,6 +46,68 @@ make info
 ```
 
 покажет адрес Gateway, строку для `/etc/hosts`, адреса интерфейсов и готовую команду `curl`. Пароль администратора интерфейсов генерируется при развертывании и сохраняется в `.state/credentials`.
+
+## Как это выглядит
+
+Снимки с работающего стенда (одна машина Ubuntu 24.04, `./deploy.sh`) под фоновой нагрузкой.
+
+**Дашборд Grafana «Hello service»: SLO и бюджет ошибок, RED-метрики через Gateway, canary v1/v2**
+
+![SLO, RED-метрики и canary в Grafana](docs/images/grafana-slo-red-canary.png)
+
+**Конвейер логов: Fluentd → Loki, живая лента access-логов nginx с request_id**
+
+![Логирование в Grafana](docs/images/grafana-logging.png)
+
+**Hubble: сетевые потоки namespace `demo` — к приложению ходят только Envoy (8080) и Prometheus (9113), как разрешает NetworkPolicy**
+
+![Карта потоков Hubble](docs/images/hubble-demo.png)
+
+<details>
+<summary><b>Вывод <code>make test</code></b></summary>
+
+```text
+
+0. Кластер
+  ✔ API server доступен
+  ✔ все узлы Ready (1/1)
+
+1. Gateway API
+  ✔ Gateway envoy-gateway-system/public Programmed
+  ✔ HTTPRoute demo/hello Accepted
+     адрес Gateway: 192.168.252.7
+  ✔ HTTP → 301 редирект на HTTPS (получено 301)
+  ✔ HTTPS (TLS проверен по CA стенда) → «Hello World!»: Hello World! version=v1 pod=hello-v1-d4849fdd-fzm69
+  ✔ X-Canary: always → версия v2
+  ✔ /v1 → версия v1 (URLRewrite)
+  ✔ /v2 → версия v2 (URLRewrite)
+  ✔ canary: 6/40 запросов на v2 (ожидается ~10%)
+  ✔ Prometheus UI без пароля → 401 (получено 401)
+  ✔ Prometheus UI с basic auth → 200 (получено 200)
+  ✔ Grafana через Gateway /api/health
+
+2. Логирование (nginx → Fluentd → Loki)
+     отправлен запрос с X-Request-Id: smoke-1790944714-16962
+  ✔ access-лог запроса (nginx) найден в Loki: {namespace="demo", container="nginx"} |= "smoke-1790944714-16962"
+     {"time":"2026-10-02T15:38:34.719529516+03:00","kubernetes":{"pod_name":"hello-v1-d4849fdd-fzm69","pod_id":"59795575-d11b-48fc-b1c5-a47aaf93be0…
+  ✔ тот же запрос в access-логе Envoy Gateway (сквозной request_id)
+
+3. Мониторинг (Prometheus)
+  ✔ PromQL up{job=~"hello-v.*"} → 4 рядов
+  ✔ PromQL nginx_http_requests_total → 4 рядов
+  ✔ PromQL envoy_cluster_upstream_rq_total → 14 рядов
+  ✔ PromQL fluentd_output_status_emit_records → 4 рядов
+  ✔ PromQL node_cpu_seconds_total → 32 рядов
+  ✔ PromQL kube_pod_status_ready → 96 рядов
+  ✔ PromQL hubble_flows_processed_total → 11 рядов
+  ✔ все targets Prometheus в состоянии up
+  ✔ правила Prometheus (включая SLO) загружены и вычисляются без ошибок
+     текущий RPS приложения: 16.20964970761348
+
+Итог: 24 пройдено, 0 провалено
+```
+
+</details>
 
 ## Архитектура
 

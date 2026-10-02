@@ -326,7 +326,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "thresholdsStyle": {
-              "mode": "line+area"
+              "mode": "dashed"
             }
           },
           "thresholds": {
@@ -423,7 +423,7 @@
             "lineWidth": 2,
             "fillOpacity": 0,
             "thresholdsStyle": {
-              "mode": "line+area"
+              "mode": "dashed"
             }
           },
           "thresholds": {
@@ -1341,8 +1341,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (fluentd_output_status_retry_count)",
-          "legendFormat": "повторы {{pod}}"
+          "expr": "sum by (pod) (increase(fluentd_output_status_retry_count[5m]))",
+          "legendFormat": "повторы за 5 мин {{pod}}"
         }
       ],
       "fieldConfig": {

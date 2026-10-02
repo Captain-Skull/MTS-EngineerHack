@@ -42,8 +42,16 @@ case "${1:-apply}" in
   apply)
     ensure_secrets
     log "helmfile apply (API server ${K8S_API_HOST})"
-    helmfile --file "${ROOT}/helmfile/helmfile.yaml.gotmpl" apply \
-      --skip-diff-on-install --suppress-secrets --concurrency 4
+    attempts="${PLATFORM_ATTEMPTS:-3}"
+    for i in $(seq 1 "${attempts}"); do
+      if helmfile --file "${ROOT}/helmfile/helmfile.yaml.gotmpl" apply \
+        --skip-diff-on-install --suppress-secrets --concurrency 4; then
+        break
+      fi
+      ((i < attempts)) || die "helmfile apply не удался после ${attempts} попыток"
+      log "попытка ${i}/${attempts} не удалась (например, сетевой таймаут) — повтор через 15 с"
+      sleep 15
+    done
     log "готово. Учётные данные UI: ${STATE}/credentials"
     ;;
   diff)

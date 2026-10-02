@@ -310,6 +310,8 @@ GitHub Actions ([`.github/workflows`](.github/workflows)):
 - **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст) и `make test`. При ошибке сохраняется диагностика.
 - **image.yml:** сборка образа Fluentd для linux/amd64 и linux/arm64, публикация в GHCR (`ghcr.io/captain-skull/fluentd-k8s-loki`), SBOM и provenance, сканирование Trivy, keyless-подпись cosign. На pull request образ только собирается.
 
+- **Renovate** ([`renovate.json`](renovate.json)): еженедельно проверяет все зафиксированные версии — Helm-чарты, образы (тег и digest вместе), GitHub Actions, гемы Fluentd, коллекции Ansible, а также версии в `versions.env`, `group_vars` и CI — и создаёт pull request с обновлением, который проверяет CI (включая e2e). Kubernetes обновляется только в пределах патч-версий: минорное обновление требует проверки совместимости и `kubeadm upgrade`. Сводка — issue «Dependency Dashboard».
+
 Проверка подписи образа (cosign v3+; подпись хранится в формате OCI referrers):
 
 ```bash
@@ -324,6 +326,7 @@ cosign verify ghcr.io/captain-skull/fluentd-k8s-loki:1.19.3-1 \
 deploy.sh                   развертывание одной командой (доустанавливает make)
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
+renovate.json               правила автоматического обновления зависимостей
 scripts/                    install-tools, multipass, platform, smoke-test, info
 ansible/                    роли common, containerd, kubernetes, control_plane, worker
 helmfile/                   описание платформы, values сторонних чартов, namespaces

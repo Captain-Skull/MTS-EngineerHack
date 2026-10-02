@@ -1,0 +1,263 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Обновление зафиксированных версий: бот создаёт PR, CI (lint + e2e на Ubuntu 24.04) проверяет каждое обновление",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Moscow",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 5,
+  "labels": [
+    "dependencies"
+  ],
+  "helm-values": {
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "CLI-инструменты управляющей машины",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "KUBECTL_VERSION=(?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "packageNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "HELM_VERSION=(?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "helm/helm",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "HELM_DIFF_VERSION=(?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "databus23/helm-diff",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "HELMFILE_VERSION=(?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "helmfile/helmfile",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "UV_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "ANSIBLE_CORE_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "ansible-core",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "Компоненты узлов кластера",
+      "managerFilePatterns": [
+        "/^ansible/group_vars/all\\.yml$/"
+      ],
+      "matchStrings": [
+        "kubernetes_version: \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible/group_vars/all\\.yml$/"
+      ],
+      "matchStrings": [
+        "containerd_version: \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "containerd/containerd",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible/group_vars/all\\.yml$/"
+      ],
+      "matchStrings": [
+        "runc_version: \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "opencontainers/runc",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Образы приложения: тег и digest обновляются вместе",
+      "managerFilePatterns": [
+        "/^charts/hello/values\\.yaml$/"
+      ],
+      "matchStrings": [
+        "repository: (?<depName>\\S+)\\n\\s+tag: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Чарт local-path-provisioner берётся из тега Git",
+      "managerFilePatterns": [
+        "/^helmfile/helmfile\\.yaml\\.gotmpl$/"
+      ],
+      "matchStrings": [
+        "github\\.com/(?<depName>rancher/local-path-provisioner)\\.git@deploy/chart/local-path-provisioner\\?ref=(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
+      "description": "Инструменты проверки в CI",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "SHELLCHECK_VERSION: (?<currentValue>v\\S+)"
+      ],
+      "depNameTemplate": "koalaman/shellcheck",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "kubeconform/releases/download/(?<currentValue>v[\\d.]+)/"
+      ],
+      "depNameTemplate": "yannh/kubeconform",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "pipx run (?<depName>yamllint)==(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "--spec (?<depName>ansible-lint)==(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Kubernetes: только патчи. Минорное обновление требует проверки совместимости Cilium и Envoy Gateway и процедуры kubeadm upgrade",
+      "matchPackageNames": [
+        "kubernetes/kubernetes"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "kubectl и kubelet/kubeadm одной версии — одним PR",
+      "matchPackageNames": [
+        "kubernetes/kubernetes"
+      ],
+      "groupName": "kubernetes"
+    },
+    {
+      "description": "Версии тегов базового образа Fluentd вида v1.19.3-debian-2.4",
+      "matchPackageNames": [
+        "fluent/fluentd"
+      ],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-debian-(?<build>\\d+)\\.(?<revision>\\d+)$"
+    },
+    {
+      "description": "Gem fluentd и базовый образ должны совпадать — одним PR",
+      "matchPackageNames": [
+        "fluentd",
+        "fluent/fluentd"
+      ],
+      "groupName": "fluentd",
+      "matchManagers": [
+        "bundler",
+        "dockerfile"
+      ]
+    },
+    {
+      "description": "Плагины Fluentd — одним PR",
+      "matchPackageNames": [
+        "/^fluent-plugin-/"
+      ],
+      "groupName": "fluentd plugins"
+    },
+    {
+      "description": "Стек мониторинга обновляется согласованно",
+      "matchPackageNames": [
+        "kube-prometheus-stack",
+        "prometheus-operator-crds"
+      ],
+      "groupName": "kube-prometheus-stack"
+    },
+    {
+      "description": "GitHub Actions — одним PR",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Линтеры CI — одним PR",
+      "matchPackageNames": [
+        "koalaman/shellcheck",
+        "yannh/kubeconform",
+        "yamllint",
+        "ansible-lint"
+      ],
+      "groupName": "ci linters"
+    }
+  ]
+}

@@ -136,6 +136,11 @@ jobs:
       - name: make test — smoke-тесты
         run: make test
 
+      - name: Учебное восстановление etcd из снапшота
+        run: |
+          make etcd-drill
+          make test
+
       - name: Диагностика при ошибке
         if: failure()
         run: |

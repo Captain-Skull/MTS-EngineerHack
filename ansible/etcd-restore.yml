@@ -1,0 +1,149 @@
+- name: Восстановление etcd из снапшота
+  hosts: control_plane
+  become: true
+  vars:
+    etcd_manifests: /etc/kubernetes/manifests
+    etcd_stopped: /etc/kubernetes/manifests-stopped
+    etcd_data: /var/lib/etcd
+    etcd_restore_data: /var/lib/etcd-restore
+  tasks:
+    - name: Восстановление поддерживается для кластера с одним control-plane узлом
+      ansible.builtin.assert:
+        that:
+          - groups['control_plane'] | length == 1
+          - etcd_snapshot is defined
+        fail_msg: "Укажите снапшот: make etcd-restore SNAPSHOT=/var/backups/etcd/etcd-snapshot-<время>.db"
+
+    - name: Снапшот существует
+      ansible.builtin.stat:
+        path: "{{ etcd_snapshot }}"
+      register: etcd_snapshot_file
+      failed_when: not etcd_snapshot_file.stat.exists
+
+    - name: Параметры etcd из манифеста kubeadm
+      ansible.builtin.slurp:
+        src: "{{ etcd_manifests }}/etcd.yaml"
+      register: etcd_manifest
+
+    - name: Имя участника, адрес и образ etcd
+      ansible.builtin.set_fact:
+        etcd_name: "{{ etcd_manifest_text | regex_search('--name=(\\S+)', '\\1') | first }}"
+        etcd_peer_url: "{{ etcd_manifest_text | regex_search('--initial-advertise-peer-urls=(\\S+)', '\\1') | first }}"
+        etcd_image: "{{ etcd_manifest_text | regex_search('image: (\\S+)', '\\1') | first }}"
+      vars:
+        etcd_manifest_text: "{{ etcd_manifest.content | b64decode }}"
+
+    - name: Каталог для остановленных static pod
+      ansible.builtin.file:
+        path: "{{ etcd_stopped }}"
+        state: directory
+        mode: "0700"
+
+    - name: Остановка kube-apiserver и etcd (kubelet удалит static pods)
+      ansible.builtin.command: mv {{ etcd_manifests }}/{{ item }} {{ etcd_stopped }}/{{ item }}
+      args:
+        creates: "{{ etcd_stopped }}/{{ item }}"
+      loop: [kube-apiserver.yaml, etcd.yaml]
+
+    - name: Ожидание остановки контейнеров
+      ansible.builtin.command: crictl ps --name '^(etcd|kube-apiserver)$' -q
+      register: etcd_running
+      until: etcd_running.stdout | length == 0
+      retries: 30
+      delay: 3
+      changed_when: false
+
+    - name: Очистка временного каталога восстановления
+      ansible.builtin.file:
+        path: "{{ etcd_restore_data }}"
+        state: absent
+
+    - name: Восстановление данных из снапшота (etcdutl из образа etcd кластера)
+      ansible.builtin.command: >
+        ctr -n k8s.io run --rm
+        --mount type=bind,src={{ etcd_snapshot | dirname }},dst=/backup,options=rbind:ro
+        --mount type=bind,src={{ etcd_restore_data | dirname }},dst=/restore,options=rbind:rw
+        {{ etcd_image }} etcd-restore-{{ ansible_facts['date_time']['epoch'] }}
+        etcdutl snapshot restore /backup/{{ etcd_snapshot | basename }}
+        --data-dir /restore/{{ etcd_restore_data | basename }}
+        --name {{ etcd_name }}
+        --initial-cluster {{ etcd_name }}={{ etcd_peer_url }}
+        --initial-advertise-peer-urls {{ etcd_peer_url }}
+      changed_when: true
+
+    - name: Сохранить текущие данные etcd
+      ansible.builtin.command: mv {{ etcd_data }} {{ etcd_data }}.before-restore-{{ ansible_facts['date_time']['epoch'] }}
+      changed_when: true
+
+    - name: Подставить восстановленные данные
+      ansible.builtin.command: mv {{ etcd_restore_data }} {{ etcd_data }}
+      changed_when: true
+
+    - name: Права на каталог данных
+      ansible.builtin.file:
+        path: "{{ etcd_data }}"
+        mode: "0700"
+
+    - name: Запуск etcd и kube-apiserver
+      ansible.builtin.command: mv {{ etcd_stopped }}/{{ item }} {{ etcd_manifests }}/{{ item }}
+      args:
+        creates: "{{ etcd_manifests }}/{{ item }}"
+      loop: [etcd.yaml, kube-apiserver.yaml]
+
+    - name: Ожидание готовности API server
+      ansible.builtin.command: kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw /readyz
+      register: etcd_readyz
+      until: etcd_readyz.rc == 0
+      retries: 60
+      delay: 5
+      changed_when: false
+
+    - name: Перезапуск kube-controller-manager и kube-scheduler (сброс закэшированного состояния)
+      ansible.builtin.shell: set -o pipefail && crictl ps --name '^(kube-controller-manager|kube-scheduler)$' -q | xargs -r crictl stop
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+- name: Перезапуск kubelet на всех узлах
+  hosts: k8s_cluster
+  become: true
+  tasks:
+    - name: Перезапуск kubelet
+      ansible.builtin.systemd_service:
+        name: kubelet
+        state: restarted
+
+- name: Перезапуск сетевого слоя и упавших контроллеров
+  hosts: control_plane
+  become: true
+  vars:
+    kubectl: kubectl --kubeconfig /etc/kubernetes/admin.conf
+    pods_waiting_reason: >-
+      {range .items[*]}{.metadata.namespace} {.metadata.name}
+      {.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}
+  tasks:
+    - name: Перезапуск Cilium (eBPF-таблицы сервисов строятся заново из API)
+      ansible.builtin.command: "{{ kubectl }} -n kube-system rollout restart daemonset/cilium deployment/cilium-operator"
+      changed_when: true
+
+    - name: Ожидание готовности Cilium
+      ansible.builtin.command: "{{ kubectl }} -n kube-system rollout status daemonset/cilium --timeout=300s"
+      changed_when: false
+
+    - name: Перезапуск подов, упавших во время восстановления
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ kubectl }} get pods -A -o jsonpath='{{ pods_waiting_reason }}' \
+          | awk '/CrashLoopBackOff|Error/ {print $1, $2}' \
+          | while read -r ns pod; do {{ kubectl }} -n "$ns" delete pod "$pod" --wait=false; done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Ожидание готовности всех Deployment
+      ansible.builtin.command: "{{ kubectl }} wait deployment --all -A --for=condition=Available --timeout=600s"
+      changed_when: false
+
+    - name: Итог
+      ansible.builtin.debug:
+        msg: "etcd восстановлен из {{ etcd_snapshot }}; прежние данные сохранены в /var/lib/etcd.before-restore-*"

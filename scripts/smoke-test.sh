@@ -110,5 +110,15 @@ prom 'up == 0' | python3 -c 'import sys,json;[print("     down:",r["metric"].get
 rps=$(prom_v 'sum(rate(nginx_http_requests_total[2m]))')
 echo "     текущий RPS приложения: ${rps:-н/д}"
 
+step "4. Резервное копирование etcd"
+backup_job="etcd-backup-smoke-$(date +%s)"
+kubectl -n kube-system create job "${backup_job}" --from=cronjob/etcd-backup >/dev/null 2>&1
+if kubectl -n kube-system wait "job/${backup_job}" --for=condition=Complete --timeout=300s >/dev/null 2>&1; then
+  ok "снапшот etcd снят и проверен: $(kubectl -n kube-system logs "job/${backup_job}" -c store 2>/dev/null | head -1)"
+else
+  bad "задание бэкапа etcd не завершилось успешно"
+fi
+kubectl -n kube-system delete job "${backup_job}" --wait=false >/dev/null 2>&1
+
 printf '\n\033[1mИтог: %d пройдено, %d провалено\033[0m\n' "${pass}" "${fail}"
 [[ "${fail}" -eq 0 ]]

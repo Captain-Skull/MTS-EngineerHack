@@ -64,6 +64,21 @@ reset: tools ## Удалить кластер с узлов (kubeadm reset)
 	ansible-playbook -i $(INVENTORY) ansible/reset.yml $(BECOME_FLAG)
 	@rm -f .state/kubeconfig
 
+.PHONY: etcd-backup
+etcd-backup: ## Снапшот etcd сейчас (вне расписания CronJob)
+	@job=etcd-backup-manual-$$(date +%s); \
+	kubectl -n kube-system create job "$$job" --from=cronjob/etcd-backup >/dev/null; \
+	kubectl -n kube-system wait job/"$$job" --for=condition=Complete --timeout=300s; \
+	kubectl -n kube-system logs job/"$$job" -c store
+
+.PHONY: etcd-restore
+etcd-restore: tools ## Восстановить etcd: make etcd-restore SNAPSHOT=/var/backups/etcd/etcd-snapshot-<время>.db
+	ansible-playbook -i $(INVENTORY) ansible/etcd-restore.yml -e etcd_snapshot=$(SNAPSHOT) $(BECOME_FLAG)
+
+.PHONY: etcd-drill
+etcd-drill: ## Учебное восстановление: метка → снапшот → изменения → restore → проверка
+	@./scripts/etcd-drill.sh
+
 .PHONY: vms-down
 vms-down: ## Удалить VM Multipass
 	@./scripts/multipass.sh down

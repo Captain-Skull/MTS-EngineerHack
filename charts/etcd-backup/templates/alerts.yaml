@@ -1,0 +1,33 @@
+{{- $sel := `namespace="kube-system", cronjob="etcd-backup"` }}
+{{- $window := mul .Values.alertAfterHours 3600 }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: etcd-backup
+  labels:
+    app.kubernetes.io/name: etcd-backup
+spec:
+  groups:
+    - name: etcd-backup.alerts
+      rules:
+        - alert: EtcdBackupMissing
+          expr: |
+            (time() - kube_cronjob_created{ {{- $sel }}} > {{ $window }})
+            unless on (namespace, cronjob)
+            (time() - kube_cronjob_status_last_successful_time{ {{- $sel }}} < {{ $window }})
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Нет успешного бэкапа etcd больше {{ .Values.alertAfterHours }} часов"
+            description: "CronJob kube-system/etcd-backup не завершался успешно {{ .Values.alertAfterHours }} ч. При потере etcd восстановиться будет не из чего: проверьте задания (kubectl -n kube-system get jobs -l app.kubernetes.io/name=etcd-backup)."
+        - alert: EtcdBackupJobFailed
+          expr: |
+            kube_job_status_failed{namespace="kube-system", job_name=~"etcd-backup-.*"} > 0
+            and on (namespace, job_name)
+            (time() - kube_job_status_start_time{namespace="kube-system", job_name=~"etcd-backup-.*"} < 6 * 3600)
+          labels:
+            severity: warning
+          annotations:
+            summary: "Задание бэкапа etcd {{ "{{" }} $labels.job_name {{ "}}" }} завершилось с ошибкой"
+            description: "Смотрите логи: kubectl -n kube-system logs job/{{ "{{" }} $labels.job_name {{ "}}" }} --all-containers"

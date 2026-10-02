@@ -82,6 +82,8 @@ spec:
         baseInterval: 100ms
         maxInterval: 1s
   timeout:
+    tcp:
+      connectTimeout: 1s
     http:
       connectionIdleTimeout: 60s
   circuitBreaker:

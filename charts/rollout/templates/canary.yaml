@@ -1,0 +1,42 @@
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "rollout.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}
+  autoscalerRef:
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    name: {{ .Release.Name }}
+  progressDeadlineSeconds: 180
+  service:
+    port: 80
+    targetPort: 9898
+    hosts:
+      - {{ .Values.host }}.{{ .Values.domain }}
+    gatewayRefs:
+      - name: {{ .Values.gateway.name }}
+        namespace: {{ .Values.gateway.namespace }}
+        sectionName: {{ .Values.gateway.sectionName }}
+  analysis:
+    interval: {{ .Values.analysis.interval }}
+    threshold: {{ .Values.analysis.threshold }}
+    stepWeight: {{ .Values.analysis.stepWeight }}
+    maxWeight: {{ .Values.analysis.maxWeight }}
+    metrics:
+      - name: error-rate
+        templateRef:
+          name: {{ .Release.Name }}-error-rate
+        thresholdRange:
+          max: {{ .Values.analysis.maxErrorRatePercent }}
+        interval: 1m
+      - name: latency-p99
+        templateRef:
+          name: {{ .Release.Name }}-latency
+        thresholdRange:
+          max: {{ .Values.analysis.maxLatencySeconds }}
+        interval: 1m

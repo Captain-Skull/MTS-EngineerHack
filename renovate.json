@@ -127,7 +127,7 @@
       "customType": "regex",
       "description": "Образы приложения: тег и digest обновляются вместе",
       "managerFilePatterns": [
-        "/^charts/hello/values\\.yaml$/"
+        "/^charts/(hello|rollout)/values\\.yaml$/"
       ],
       "matchStrings": [
         "repository: (?<depName>\\S+)\\n\\s+tag: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]+)"

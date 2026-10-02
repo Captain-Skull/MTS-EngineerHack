@@ -1,0 +1,33 @@
+domain: demo.test
+host: rollout
+
+image:
+  repository: ghcr.io/stefanprodan/podinfo
+  tag: 6.15.0
+  digest: sha256:ec73780a8425f59ea49f5bc8cdff0d598805a224fbaa1f86c67a244f250fa9da
+
+message: стабильная версия из Git
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+gateway:
+  name: public
+  namespace: envoy-gateway-system
+  sectionName: https
+
+prometheus: http://kube-prometheus-stack-prometheus.monitoring:9090
+
+analysis:
+  interval: 20s
+  threshold: 3
+  stepWeight: 20
+  maxWeight: 60
+  maxErrorRatePercent: 1
+  maxLatencySeconds: 0.5

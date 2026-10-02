@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: flagger
+  namespace: monitoring
+  labels: {{- include "rollout.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: flagger.alerts
+      rules:
+        - alert: CanaryRolledBack
+          expr: flagger_canary_status == 2
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flagger откатил {{ "{{" }} $labels.exported_namespace {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }}"
+            description: "Анализ новой версии не прошёл (доля ошибок или задержка выше порога) — трафик возвращён на стабильную версию."

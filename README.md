@@ -36,7 +36,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 23 автоматические проверки: приложение через Gateway API, метрики в Prometheus, логи в Loki.
+4. `make test` — 24 автоматические проверки: приложение через Gateway API, метрики в Prometheus, логи в Loki.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 

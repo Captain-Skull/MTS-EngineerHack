@@ -127,7 +127,7 @@
       "customType": "regex",
       "description": "Образы приложения: тег и digest обновляются вместе",
       "managerFilePatterns": [
-        "/^charts/(hello|rollout)/values\\.yaml$/"
+        "/^charts/(hello|rollout|etcd-backup)/values\\.yaml$/"
       ],
       "matchStrings": [
         "repository: (?<depName>\\S+)\\n\\s+tag: (?<currentValue>\\S+)\\n\\s+digest: (?<currentDigest>sha256:[a-f0-9]+)"
@@ -198,9 +198,29 @@
         "_IMAGE:-(?<depName>[^:}\\s]+):(?<currentValue>[^@}\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)\\}"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "--package (?<depName>renovate)@(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "npm"
     }
   ],
   "packageRules": [
+    {
+      "description": "Runner остаётся Ubuntu 24.04: кейс требует тестирования на Ubuntu 24.04, e2e в CI должен совпадать с целевой ОС",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "ubuntu"
+      ],
+      "enabled": false
+    },
     {
       "description": "Kubernetes: только патчи. Минорное обновление требует проверки совместимости Cilium и Envoy Gateway и процедуры kubeadm upgrade",
       "matchPackageNames": [
@@ -266,7 +286,8 @@
         "koalaman/shellcheck",
         "yannh/kubeconform",
         "yamllint",
-        "ansible-lint"
+        "ansible-lint",
+        "renovate"
       ],
       "groupName": "ci linters"
     }

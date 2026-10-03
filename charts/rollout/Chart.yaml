@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rollout
+description: Демо progressive delivery — podinfo под управлением Flagger (canary через Gateway API с анализом метрик Prometheus)
+type: application
+version: 1.0.0
+appVersion: "6.15.0"

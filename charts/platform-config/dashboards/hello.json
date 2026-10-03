@@ -1657,6 +1657,194 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "id": 36,
+      "type": "row",
+      "title": "Progressive delivery: Flagger (rollout.demo.test, make rollout)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 91
+      },
+      "panels": []
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "Последний анализ",
+      "description": "Результат последнего анализа Flagger: выполняется, новая версия продвинута или откачена.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 0,
+        "y": 92
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "анализ идёт",
+                  "color": "blue"
+                },
+                "1": {
+                  "text": "продвинута",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "откат",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "flagger_canary_status{name=\"rollout\"}",
+          "legendFormat": "rollout",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "Вес трафика: стабильная версия / canary",
+      "description": "Как Flagger переключает трафик в HTTPRoute по шагам анализа.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 4,
+        "y": 92
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "flagger_canary_weight{exported_namespace=\"demo\"}",
+          "legendFormat": "{{workload}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "Запросы/с и ошибки 5xx по версиям",
+      "description": "Метрики самого приложения: Flagger сравнивает долю 5xx и p99 canary с порогами.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 14,
+        "y": 92
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (track) (label_replace(rate(http_request_duration_seconds_count{namespace=\"demo\",pod=~\"rollout-.*\"}[1m]),\"track\",\"$1\",\"pod\",\"(rollout(?:-primary)?)-[a-z0-9]+-[a-z0-9]+\"))",
+          "legendFormat": "{{track}} всего",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (track) (label_replace(rate(http_request_duration_seconds_count{namespace=\"demo\",pod=~\"rollout-.*\",status=~\"5..\"}[1m]),\"track\",\"$1\",\"pod\",\"(rollout(?:-primary)?)-[a-z0-9]+-[a-z0-9]+\"))",
+          "legendFormat": "{{track}} 5xx",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B"
+        }
+      ]
     }
   ],
   "links": [

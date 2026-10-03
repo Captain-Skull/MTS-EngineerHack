@@ -1,0 +1,12 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}
+  labels: {{- include "rollout.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      mts-hack/app: {{ .Release.Name }}
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 10s

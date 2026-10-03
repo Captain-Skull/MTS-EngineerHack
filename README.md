@@ -19,6 +19,7 @@
 - [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Политики допуска и подпись образов](#политики-допуска-и-подпись-образов)
+- [Progressive delivery (Flagger)](#progressive-delivery-flagger)
 - [Нагрузочный тест и автомасштабирование](#нагрузочный-тест-и-автомасштабирование)
 - [Соответствие CIS Kubernetes Benchmark](#соответствие-cis-kubernetes-benchmark)
 - [Тест отказоустойчивости](#тест-отказоустойчивости)
@@ -43,7 +44,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 33 автоматические проверки: приложение через Gateway API, метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd, политики допуска Kyverno.
+4. `make test` — 35 автоматических проверок: приложение через Gateway API, progressive delivery (Flagger), метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd, политики допуска Kyverno.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 
@@ -175,7 +176,7 @@ flowchart LR
 |---|---|---|
 | Машины | Multipass (опционально) | VM Ubuntu 24.04 для локального стенда на macOS/Linux |
 | ОС и кластер | Ansible + kubeadm | пакеты, ядро, containerd, kubelet, `kubeadm init/join` |
-| Платформа | Helmfile (18 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd, Kyverno |
+| Платформа | Helmfile (20 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd, Kyverno, Flagger |
 | Приложение и связи | собственные Helm-чарты | `charts/hello`, `charts/platform-config` |
 | Точка входа | Make | `make deploy`, `make test`, `make info` |
 
@@ -197,6 +198,8 @@ flowchart LR
 | Tempo | 3.1.0 | хранилище трейсов, metrics-generator (граф сервисов, span-метрики) |
 | OpenTelemetry Collector | 0.161.0 (чарт 0.175.0) | приём спанов OTLP, атрибуты Kubernetes, отправка в Tempo |
 | nginx (unprivileged, `-otel`) | 1.31.6 | демо-приложение с модулем OpenTelemetry + nginx-prometheus-exporter 1.5.3 |
+| Flagger | 1.45.0 | progressive delivery: canary через Gateway API с анализом метрик Prometheus и автоматическим откатом |
+| podinfo | 6.15.0 | демо-приложение для progressive delivery |
 | Kyverno | 1.19.1 (чарт 3.9.1) | политики допуска: проверка подписи образов cosign, образы только по digest |
 | metrics-server | 0.9.0 | метрики ресурсов для HPA |
 | kubelet-csr-approver | 1.2.15 | одобрение serving-сертификатов kubelet |
@@ -215,6 +218,7 @@ flowchart LR
 | `GatewayClass` | `eg` | контроллер Envoy Gateway + параметры прокси (`EnvoyProxy eg-proxy`) |
 | `Gateway` | `envoy-gateway-system/public` | слушатели HTTP:80 и HTTPS:443 (`*.demo.test`, TLS terminate), маршруты принимаются только из namespace с меткой `mts-hack/gateway-access=true` |
 | `HTTPRoute` | `demo/hello` | `hello.demo.test`: заголовок `X-Canary: always` → v2; `/v1`, `/v2` → конкретная версия (URLRewrite); остальное → 90% v1 / 10% v2 |
+| `HTTPRoute` | `demo/rollout` | `rollout.demo.test`: **создаётся и управляется Flagger** — веса стабильной версии и canary меняются по шагам анализа |
 | `HTTPRoute` | `envoy-gateway-system/http-to-https` | редирект HTTP → HTTPS (301) |
 | `HTTPRoute` | `grafana`, `prometheus`, `alertmanager`, `hubble` | служебные интерфейсы по hostname |
 | `ClientTrafficPolicy` | `public-client` | TLS ≥ 1.2, HTTP/2, генерация `X-Request-Id` |
@@ -433,6 +437,63 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 # Error from server: admission webhook … denied the request
 ```
 
+## Progressive delivery (Flagger)
+
+Canary 90/10 у `hello` — ручной: вес задан в values. Для автоматической выкатки используется [Flagger](https://flagger.app) (провайдер Gateway API v1). Он управляет отдельным демо-сервисом `rollout.demo.test` ([`charts/rollout`](charts/rollout), приложение [podinfo](https://github.com/stefanprodan/podinfo)):
+
+1. При изменении Deployment `demo/rollout` Flagger поднимает новую версию рядом со стабильной (`rollout-primary`) и **сам меняет веса в `HTTPRoute`**: 20% → 40% → 60%.
+2. Каждые 20 секунд он запрашивает у Prometheus **долю ответов 5xx** и **p99 задержки** новой версии (собственные `MetricTemplate`, метрики приложения).
+3. Если метрики в норме, новая версия становится стабильной. Если порог (1% ошибок или 0,5 с) нарушен 3 раза — **автоматический откат**: весь трафик возвращается на стабильную версию, срабатывает алерт `CanaryRolledBack`.
+
+`make rollout` ([`scripts/rollout-test.sh`](scripts/rollout-test.sh)) проверяет это под нагрузкой через Gateway: выкатывает исправную версию (должна продвинуться без ошибок у клиентов), затем неисправную (podinfo с `--random-error` — треть ответов с ошибкой; должна откатиться), затем возвращает версию из Git. На дашборде «Hello service» — раздел Flagger: результат анализа, веса трафика по шагам и запросы/ошибки по версиям. Тест выполняется в CI на каждом коммите.
+
+Ошибки при неудачной выкатке получает только доля трафика canary (20%) и только до отката — в примере ниже 4,4% запросов за время анализа и ни одной после.
+
+```text
+Progressive delivery (Flagger): https://rollout.demo.test, сейчас отвечает «стабильная версия из Git»
+
+1. Новая исправная версия: Flagger постепенно переводит трафик и продвигает её
+     01:29:23  Progressing вес canary 0%, неудачных проверок 0
+     01:29:42  Progressing вес canary 20%, неудачных проверок 0
+     01:30:04  Progressing вес canary 40%, неудачных проверок 0
+     01:30:23  Progressing вес canary 60%, неудачных проверок 0
+     01:30:44  Promoting вес canary 60%, неудачных проверок 0
+     01:31:03  Finalising вес canary 0%, неудачных проверок 0
+     01:31:25  Succeeded вес canary 0%, неудачных проверок 0
+     1469 200  новая версия 012913
+     1294 200  стабильная версия из Git
+  ✔ версия продвинута: весь трафик получает «новая версия 012913»
+  ✔ клиенты не получили ни одной ошибки (2763 запросов)
+
+2. Неисправная версия (треть ответов — 500): Flagger должен откатить её
+     01:31:43  Progressing вес canary 0%, неудачных проверок 0
+     01:32:04  Progressing вес canary 20%, неудачных проверок 0
+     01:32:23  Progressing вес canary 20%, неудачных проверок 1
+     01:32:45  Progressing вес canary 20%, неудачных проверок 2
+     01:33:03  Progressing вес canary 20%, неудачных проверок 3
+     01:33:25  Failed вес canary 0%, неудачных проверок 0
+     2347 200  новая версия 012913
+      229 200  неисправная версия 012913
+       49 400  -
+       36 500  -
+       33 409  -
+  ✔ откат выполнен: весь трафик снова получает «новая версия 012913»
+     ошибок у клиентов за время анализа: 118 из 2694 (4.4%) — только доля трафика canary до отката
+  ✔ после отката ошибок нет (324 запросов за 15 с)
+
+3. Возврат версии из Git
+     01:34:03  Progressing вес canary 0%, неудачных проверок 0
+     01:34:25  Progressing вес canary 20%, неудачных проверок 0
+     01:34:43  Progressing вес canary 40%, неудачных проверок 0
+     01:35:02  Progressing вес canary 60%, неудачных проверок 0
+     01:35:24  Promoting вес canary 60%, неудачных проверок 0
+     01:35:44  Finalising вес canary 0%, неудачных проверок 0
+     01:36:03  Succeeded вес canary 0%, неудачных проверок 0
+  ✔ кластер снова соответствует Git: «стабильная версия из Git»
+
+Итог: 5 пройдено, 0 провалено
+```
+
 ## Нагрузочный тест и автомасштабирование
 
 `make load` ([`scripts/load-test.sh`](scripts/load-test.sh), сценарий [`scripts/k6/hello.js`](scripts/k6/hello.js)) запускает [k6](https://k6.io) как Job внутри кластера: нагрузка идёт **через Gateway по HTTPS** с проверкой сертификата по CA стенда, как от настоящего клиента. Нагрузка растёт до 150 запросов/с за минуту и держится 4 минуты. Скрипт каждые 15 секунд показывает реплики и загрузку CPU по HPA и проверяет два результата:
@@ -593,9 +654,9 @@ FAIL:
 
 ## Дополнительные возможности
 
-**Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
+**Gateway API:** HTTP→HTTPS, TLS с автоматическим выпуском и продлением (cert-manager, собственный CA), маршрутизация по hostname, пути и заголовку, URL rewrite, несколько backend, canary 90/10 (вес — `canaryWeight` в values), **автоматический canary с анализом метрик и откатом (Flagger)**, rate limit, retries с backoff, таймауты, circuit breaker, пассивные health checks, basic auth для служебных интерфейсов, сквозной `X-Request-Id`.
 
-**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 18 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
+**Мониторинг и логирование:** RED-метрики через Envoy, метрики по версиям, метрики из логов (LogQL), SLO доступности и задержки с алертами по burn rate бюджета ошибок (методика Google SRE), собственный дашборд Grafana как код, 19 алертов и 24 recording rules, метрики control plane и etcd, сетевая наблюдаемость Hubble, аудит API server в Loki, мониторинг самого конвейера логов, **распределённый трейсинг** OpenTelemetry → Tempo с графом сервисов, span-метриками и связью «лог ↔ трейс» по `trace_id` (все три сигнала наблюдаемости связаны).
 
 **Надёжность:** бэкапы etcd каждые 6 часов с проверкой целостности, ротацией, алертами и автоматически проверяемым восстановлением, 2+ реплики приложения, Envoy и контроллера Envoy Gateway с PodDisruptionBudget, HPA (2–6 реплик по CPU, проверяется нагрузочным тестом `make load`), PodDisruptionBudget, rolling update без простоя (`maxUnavailable: 0`, readiness, `preStop`), распределение реплик по узлам, файловый буфер Fluentd с повторами; всё это проверяется тестом отказоустойчивости `make chaos` под нагрузкой.
 
@@ -608,7 +669,7 @@ FAIL:
 GitHub Actions ([`.github/workflows`](.github/workflows)):
 
 - **ci.yml → lint:** gitleaks (секреты в истории), shellcheck, yamllint, ansible-lint (профиль production), hadolint, `helm lint`, рендеринг всей платформы и валидация 300+ манифестов по схемам Kubernetes 1.36 и CRD (kubeconform), Trivy misconfiguration.
-- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст), `make test`, проверка CIS Benchmark (`make cis`), тест отказоустойчивости (`make chaos`) и учебное восстановление etcd из снапшота (`make etcd-drill`) с повторным `make test`. При ошибке сохраняется диагностика.
+- **ci.yml → e2e:** на чистом runner `ubuntu-24.04` выполняется `make cluster` и `make platform` (настоящий kubeadm-кластер), затем проверка идемпотентности (повторный Ansible — `changed=0`, `helmfile diff` пуст), `make test`, проверка CIS Benchmark (`make cis`), тест отказоустойчивости (`make chaos`), progressive delivery (`make rollout`) и учебное восстановление etcd из снапшота (`make etcd-drill`) с повторным `make test`. При ошибке сохраняется диагностика.
 - **image.yml:** сборка образа Fluentd для linux/amd64 и linux/arm64, публикация в GHCR (`ghcr.io/captain-skull/fluentd-k8s-loki`), SBOM и provenance, сканирование Trivy, keyless-подпись cosign. На pull request образ только собирается.
 
 - **Renovate** ([`renovate.json`](renovate.json)): еженедельно проверяет все зафиксированные версии — Helm-чарты, образы (тег и digest вместе), GitHub Actions, гемы Fluentd, коллекции Ansible, а также версии в `versions.env`, `group_vars` и CI — и создаёт pull request с обновлением, который проверяет CI (включая e2e). Kubernetes обновляется только в пределах патч-версий: минорное обновление требует проверки совместимости и `kubeadm upgrade`. Сводка — issue «Dependency Dashboard».
@@ -628,13 +689,14 @@ deploy.sh                   развертывание одной командо
 Makefile                    точка входа (make help — список команд)
 versions.env                версии CLI-инструментов
 renovate.json               правила автоматического обновления зависимостей
-scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, load-test (+ k6/), cis-bench, etcd-drill, info
+scripts/                    install-tools, multipass, platform, smoke-test, chaos-test, rollout-test, load-test (+ k6/), cis-bench, etcd-drill, info
 ansible/                    роли common, containerd, kubernetes, control_plane, worker, cis; etcd-restore
 helmfile/                   описание платформы, values сторонних чартов, namespaces
 charts/hello/               демо-приложение
 charts/platform-config/     Gateway API, TLS, политики трафика, мониторы, алерты, SLO, дашборд
 charts/etcd-backup/         CronJob снапшотов etcd с проверкой и алертами
 charts/policies/            политики допуска Kyverno (подпись образов, digest)
+charts/rollout/             podinfo под управлением Flagger: Canary, MetricTemplate, алерт отката
 images/fluentd/             Dockerfile и Gemfile образа Fluentd
 .github/workflows/          CI/CD
 docs/adr/                   архитектурные решения (ADR): что выбрано, альтернативы, последствия

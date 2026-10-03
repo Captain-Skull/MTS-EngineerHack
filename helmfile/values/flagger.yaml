@@ -1,0 +1,22 @@
+meshProvider: gatewayapi:v1
+metricsServer: http://kube-prometheus-stack-prometheus.monitoring:9090
+
+podAnnotations: {}
+
+securityContext:
+  enabled: true
+  context:
+    runAsNonRoot: true
+    runAsUser: 10001
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities: { drop: [ALL] }
+    seccompProfile: { type: RuntimeDefault }
+
+podMonitor:
+  enabled: true
+  namespace: flagger-system
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 256Mi }

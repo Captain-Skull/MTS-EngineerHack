@@ -92,7 +92,7 @@ jobs:
     name: E2E на Ubuntu 24.04 (kubeadm)
     needs: lint
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 80
     env:
       FLUENTD_IMAGE_REPOSITORY: ci.local/fluentd-k8s-loki
       FLUENTD_IMAGE_TAG: ci
@@ -137,6 +137,9 @@ jobs:
 
       - name: make chaos — сбои под нагрузкой без ошибок для клиентов
         run: make chaos
+
+      - name: make rollout — Flagger продвигает исправную версию и откатывает неисправную
+        run: make rollout
 
       - name: Учебное восстановление etcd из снапшота
         run: |

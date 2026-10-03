@@ -49,6 +49,10 @@ test: ## Smoke-тесты (Gateway API, Prometheus, логирование)
 chaos: ## Тест отказоустойчивости: сбои под нагрузкой (поды, Envoy, drain узла, Loki)
 	@./scripts/chaos-test.sh
 
+.PHONY: rollout
+rollout: ## Progressive delivery (Flagger): исправная версия продвигается, неисправная откатывается (~7 мин)
+	@./scripts/rollout-test.sh
+
 .PHONY: load
 load: ## Нагрузочный тест k6 через Gateway и проверка автомасштабирования HPA (~6 мин)
 	@./scripts/load-test.sh

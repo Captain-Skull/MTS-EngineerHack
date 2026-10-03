@@ -61,6 +61,10 @@ code=$(curl -sS --max-time 10 --cacert "${STATE}/ca.crt" --resolve "${P}:443:${G
 check "Prometheus UI с basic auth → 200 (получено ${code})" test "${code}" = 200
 G="grafana.${DOMAIN}"
 check "Grafana через Gateway /api/health" grep -q '"database": *"ok"' <<<"$(curl -sS --max-time 10 --cacert "${STATE}/ca.crt" --resolve "${G}:443:${GW_IP}" "https://${G}/api/health")"
+canary_ready() { [[ "$(kubectl -n demo get canary rollout -o jsonpath='{.status.phase}' 2>/dev/null)" =~ ^(Initialized|Succeeded)$ ]]; }
+check "Flagger: Canary demo/rollout инициализирован (HTTPRoute создан Flagger)" eventually 180 canary_ready
+R="rollout.${DOMAIN}"
+check "rollout.${DOMAIN} через Gateway → podinfo" grep -q '"version"' <<<"$(curl -sS --max-time 10 --cacert "${STATE}/ca.crt" --resolve "${R}:443:${GW_IP}" "https://${R}/")"
 
 step "2. Логирование (nginx → Fluentd → Loki)"
 RID="smoke-$(date +%s)-${RANDOM}"

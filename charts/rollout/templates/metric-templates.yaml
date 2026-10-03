@@ -1,0 +1,29 @@
+apiVersion: flagger.app/v1beta1
+kind: MetricTemplate
+metadata:
+  name: {{ .Release.Name }}-error-rate
+  labels: {{- include "rollout.labels" . | nindent 4 }}
+spec:
+  provider:
+    type: prometheus
+    address: {{ .Values.prometheus }}
+  query: |
+    100 * (
+      sum(rate(http_request_duration_seconds_count{namespace="{{ "{{" }} namespace {{ "}}" }}", pod=~"{{ "{{" }} target {{ "}}" }}-[0-9a-z]+-[0-9a-z]+", status=~"5.."}[{{ "{{" }} interval {{ "}}" }}]))
+      or vector(0)
+    )
+    /
+    sum(rate(http_request_duration_seconds_count{namespace="{{ "{{" }} namespace {{ "}}" }}", pod=~"{{ "{{" }} target {{ "}}" }}-[0-9a-z]+-[0-9a-z]+"}[{{ "{{" }} interval {{ "}}" }}]))
+---
+apiVersion: flagger.app/v1beta1
+kind: MetricTemplate
+metadata:
+  name: {{ .Release.Name }}-latency
+  labels: {{- include "rollout.labels" . | nindent 4 }}
+spec:
+  provider:
+    type: prometheus
+    address: {{ .Values.prometheus }}
+  query: |
+    histogram_quantile(0.99,
+      sum by (le) (rate(http_request_duration_seconds_bucket{namespace="{{ "{{" }} namespace {{ "}}" }}", pod=~"{{ "{{" }} target {{ "}}" }}-[0-9a-z]+-[0-9a-z]+"}[{{ "{{" }} interval {{ "}}" }}])))

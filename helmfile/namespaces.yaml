@@ -66,3 +66,10 @@ metadata:
   name: kyverno
   labels:
     pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flagger-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

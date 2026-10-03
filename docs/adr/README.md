@@ -1,6 +1,6 @@
 # Архитектурные решения (ADR)
 
-Architecture Decision Records — короткие записи о значимых решениях: какая была ситуация, что выбрали, какие варианты отвергли и чем за это платим. Формат — [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
+Здесь собраны короткие записи о решениях, которые сильнее всего повлияли на проект: в какой ситуации принималось решение, что выбрали, от чего отказались и чем за это пришлось заплатить. Формат взят у [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
 
 | № | Решение | Статус |
 |---|---|---|
@@ -9,7 +9,7 @@ Architecture Decision Records — короткие записи о значим�
 | [0003](0003-cilium.md) | Cilium без kube-proxy и Node IPAM вместо MetalLB | принято |
 | [0004](0004-envoy-gateway.md) | Envoy Gateway как реализация Gateway API | принято |
 | [0005](0005-fluentd-loki.md) | Fluentd с собственным образом и Loki вместо Elasticsearch | принято |
-| [0006](0006-helmfile.md) | Helmfile + Make для платформы, без GitOps-контроллера | принято, дополнено 0014 |
+| [0006](0006-helmfile.md) | Helmfile и Make для платформы, без GitOps-контроллера | принято, дополнено 0014 |
 | [0007](0007-own-ca.md) | Собственный CA в cert-manager вместо ACME | принято |
 | [0008](0008-tracing.md) | Трейсинг OpenTelemetry → Tempo | принято |
 | [0009](0009-kyverno-fail-closed.md) | Kyverno, проверка подписи в режиме fail-closed | принято |

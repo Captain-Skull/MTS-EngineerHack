@@ -8,6 +8,7 @@
 ## Содержание
 
 - [Быстрый старт](#быстрый-старт)
+- [Соответствие требованиям кейса](#соответствие-требованиям-кейса)
 - [Как это выглядит](#как-это-выглядит)
 - [Архитектура](#архитектура)
 - [Технологии и версии](#технологии-и-версии)
@@ -39,7 +40,7 @@ cd MTS-EngineerHack
 ./deploy.sh
 ```
 
-`./deploy.sh` доустанавливает через apt отсутствующие базовые утилиты (`make`, `git`, `curl`, `python3` — на минимальных образах Ubuntu `make` нет) и запускает `make deploy`. Если `make` уже установлен, можно сразу выполнять `make deploy`. За ~15–20 минут выполняется:
+`./deploy.sh` доустанавливает через apt отсутствующие базовые утилиты (`make`, `git`, `curl`, `python3` — на минимальных образах Ubuntu `make` нет) и запускает `make deploy`. Если `make` уже установлен, можно сразу выполнять `make deploy`. На чистой VM Ubuntu 24.04 с 4 vCPU и 8 ГБ RAM развертывание занимает **около 12 минут** (пик потребления памяти — 5,5 ГБ); повторный запуск — около минуты и ничего не меняет (Ansible `changed=0`, helmfile без изменений). Выполняется:
 
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
@@ -53,6 +54,26 @@ make info
 ```
 
 покажет адрес Gateway, строку для `/etc/hosts`, адреса интерфейсов и готовую команду `curl`. Пароль администратора интерфейсов генерируется при развертывании и сохраняется в `.state/credentials`.
+
+## Соответствие требованиям кейса
+
+Все обязательные пункты проверяет `make test`. Ниже — где реализован каждый пункт и как проверить его вручную (`GW` — адрес из `make info`).
+
+| Требование | Как реализовано | Как проверить |
+|---|---|---|
+| Kubernetes, приоритет kubeadm | **kubeadm 1.36.5**, containerd 2.4.1, Ansible ([`ansible/`](ansible)) | `kubectl get nodes -o wide` |
+| Ubuntu 24.04 | проверено на Ubuntu 24.04.5 (VM 4 vCPU / 8 ГБ, Multipass) и в CI на runner `ubuntu-24.04` на каждом коммите | [CI](https://github.com/Captain-Skull/MTS-EngineerHack/actions) |
+| Простое веб-приложение с однозначным ответом и access-логами | nginx (unprivileged), ответ `Hello World!`, JSON access-лог в stdout ([`charts/hello`](charts/hello)) | `curl --cacert .state/ca.crt --resolve hello.demo.test:443:$GW https://hello.demo.test/` → `Hello World! version=v1 …` |
+| Gateway API: контроллер, GatewayClass, Gateway, HTTPRoute | **Envoy Gateway 1.9.2** (Gateway API v1.6.1), `GatewayClass eg`, `Gateway public`, `HTTPRoute hello` → Service приложения ([`charts/platform-config`](charts/platform-config)) | `kubectl get gatewayclass,gateway,httproute -A`; [раздел проверки](#проверка-приложения-и-gateway-api) |
+| Prometheus собирает метрики | kube-prometheus-stack; метрики nginx, Envoy, узлов, control plane, Cilium, Fluentd, Loki и др. | `kubectl get --raw '/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=nginx_http_requests_total'`; [раздел проверки](#проверка-мониторинга) |
+| Fluentd/Filebeat собирает логи приложения | **Fluentd** (DaemonSet) → Loki → Grafana; access- и error-логи nginx и Envoy | запрос с `X-Request-Id: check-001` и поиск в Loki — [раздел проверки](#проверка-логирования) |
+| Автоматизация, минимум команд, без ручного создания ресурсов | `./deploy.sh` (одна команда) = `make tools cluster platform test` | [Быстрый старт](#быстрый-старт) |
+| Повторный запуск не ломает систему | Ansible идемпотентен (`changed=0`), helmfile применяет только разницу | повторный `make deploy`; в CI — проверка `changed=0` и пустого `helmfile diff` |
+| Без коммерческих сервисов и доступа к инфраструктуре участника | только open-source компоненты, образы из публичных реестров, собственный образ Fluentd собирается из [`images/fluentd`](images/fluentd) | — |
+| Нет чувствительных данных в репозитории | пароли генерируются при развертывании в `.state/` (в `.gitignore`) | gitleaks проверяет всю историю в CI на каждом коммите |
+| README: версия Kubernetes, способ создания кластера, ОС, реализация Gateway API и её ресурсы | этот документ | [Технологии и версии](#технологии-и-версии), [Ресурсы Gateway API](#ресурсы-gateway-api) |
+
+**Дополнительно** (подробности — в разделах ниже): TLS и HTTP→HTTPS, canary 90/10, маршрутизация по hostname, пути и заголовку, rate limit, retries; SLO с алертами по burn rate, дашборд Grafana, трейсинг OpenTelemetry → Tempo; CI/CD с e2e на настоящем kubeadm-кластере; GitOps (Argo CD) и автоматический canary с откатом (Flagger); проверка подписи образов (Kyverno); CIS Benchmark; бэкапы etcd с проверяемым восстановлением; тесты отказоустойчивости и нагрузки; [архитектурные решения (ADR)](docs/adr/README.md).
 
 ## Как это выглядит
 
@@ -233,7 +254,7 @@ flowchart LR
 |---|---|---|
 | ОС | Ubuntu 24.04 LTS (amd64 или arm64) | чистая установка |
 | CPU | 4 vCPU | 4+ vCPU |
-| RAM | 8 ГБ | 16 ГБ |
+| RAM | 8 ГБ (проверено: пик 5,5 ГБ) | 16 ГБ |
 | Диск | 30 ГБ свободно | 40 ГБ |
 | Сеть | доступ в интернет (пакеты, образы, чарты) | |
 | Права | пользователь с `sudo` | |

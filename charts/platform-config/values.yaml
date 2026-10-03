@@ -34,6 +34,11 @@ ui:
     service: hubble-ui
     port: 80
     basicAuth: true
+  argocd:
+    namespace: argocd
+    service: argo-cd-argocd-server
+    port: 80
+    basicAuth: false
 
 slo:
   window: 7d

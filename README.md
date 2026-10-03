@@ -19,7 +19,7 @@
 - [Проверка трейсинга](#проверка-трейсинга)
 - [Резервное копирование etcd](#резервное-копирование-etcd)
 - [Политики допуска и подпись образов](#политики-допуска-и-подпись-образов)
-- [Progressive delivery (Flagger)](#progressive-delivery-flagger)
+- [GitOps и progressive delivery (Argo CD + Flagger)](#gitops-и-progressive-delivery-argo-cd--flagger)
 - [Нагрузочный тест и автомасштабирование](#нагрузочный-тест-и-автомасштабирование)
 - [Соответствие CIS Kubernetes Benchmark](#соответствие-cis-kubernetes-benchmark)
 - [Тест отказоустойчивости](#тест-отказоустойчивости)
@@ -44,7 +44,7 @@ cd MTS-EngineerHack
 1. `make tools` — скачивает в `./.bin` зафиксированные версии kubectl, helm, helmfile и ansible-core (со сверкой sha256, систему не меняет);
 2. `make cluster` — Ansible готовит ОС и создаёт кластер kubeadm на этой машине;
 3. `make platform` — helmfile устанавливает сеть, Gateway API, мониторинг, логирование и приложение;
-4. `make test` — 35 автоматических проверок: приложение через Gateway API, progressive delivery (Flagger), метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd, политики допуска Kyverno.
+4. `make test` — 37 автоматических проверок: приложение через Gateway API, GitOps (Argo CD) и progressive delivery (Flagger), метрики в Prometheus, логи в Loki, трейсы в Tempo, бэкап etcd, политики допуска Kyverno.
 
 Если `sudo` требует пароль, Ansible спросит его один раз. Затем:
 
@@ -176,8 +176,9 @@ flowchart LR
 |---|---|---|
 | Машины | Multipass (опционально) | VM Ubuntu 24.04 для локального стенда на macOS/Linux |
 | ОС и кластер | Ansible + kubeadm | пакеты, ядро, containerd, kubelet, `kubeadm init/join` |
-| Платформа | Helmfile (20 Helm-релизов) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd, Kyverno, Flagger |
+| Платформа | Helmfile (21 Helm-релиз) | Cilium, Envoy Gateway, cert-manager, мониторинг, логирование, трейсинг, бэкапы etcd, Kyverno, Flagger, Argo CD |
 | Приложение и связи | собственные Helm-чарты | `charts/hello`, `charts/platform-config` |
+| Доставка приложений из Git | Argo CD (GitOps) | `charts/rollout` синхронизируется из репозитория, выкатку выполняет Flagger |
 | Точка входа | Make | `make deploy`, `make test`, `make info` |
 
 Почему выбраны именно эти компоненты, какие альтернативы рассматривались и чем за выбор приходится платить — в [архитектурных решениях (ADR)](docs/adr/README.md).
@@ -198,6 +199,7 @@ flowchart LR
 | Tempo | 3.1.0 | хранилище трейсов, metrics-generator (граф сервисов, span-метрики) |
 | OpenTelemetry Collector | 0.161.0 (чарт 0.175.0) | приём спанов OTLP, атрибуты Kubernetes, отправка в Tempo |
 | nginx (unprivileged, `-otel`) | 1.31.6 | демо-приложение с модулем OpenTelemetry + nginx-prometheus-exporter 1.5.3 |
+| Argo CD | 3.5.3 (чарт 10.9.6) | GitOps: приложение `rollout` синхронизируется из Git, автоматическое исправление ручных изменений |
 | Flagger | 1.45.0 | progressive delivery: canary через Gateway API с анализом метрик Prometheus и автоматическим откатом |
 | podinfo | 6.15.0 | демо-приложение для progressive delivery |
 | Kyverno | 1.19.1 (чарт 3.9.1) | политики допуска: проверка подписи образов cosign, образы только по digest |
@@ -220,7 +222,7 @@ flowchart LR
 | `HTTPRoute` | `demo/hello` | `hello.demo.test`: заголовок `X-Canary: always` → v2; `/v1`, `/v2` → конкретная версия (URLRewrite); остальное → 90% v1 / 10% v2 |
 | `HTTPRoute` | `demo/rollout` | `rollout.demo.test`: **создаётся и управляется Flagger** — веса стабильной версии и canary меняются по шагам анализа |
 | `HTTPRoute` | `envoy-gateway-system/http-to-https` | редирект HTTP → HTTPS (301) |
-| `HTTPRoute` | `grafana`, `prometheus`, `alertmanager`, `hubble` | служебные интерфейсы по hostname |
+| `HTTPRoute` | `grafana`, `prometheus`, `alertmanager`, `hubble`, `argocd` | служебные интерфейсы по hostname |
 | `ClientTrafficPolicy` | `public-client` | TLS ≥ 1.2, HTTP/2, генерация `X-Request-Id` |
 | `BackendTrafficPolicy` | `demo/hello` | rate limit 100 rps на реплику Envoy, retries, таймауты, circuit breaker, outlier detection |
 | `SecurityPolicy` | `*-basic-auth` | basic auth для Prometheus, Alertmanager, Hubble |
@@ -437,7 +439,11 @@ kubectl run test --image=ghcr.io/captain-skull/fluentd-k8s-loki:unsigned --dry-r
 # Error from server: admission webhook … denied the request
 ```
 
-## Progressive delivery (Flagger)
+## GitOps и progressive delivery (Argo CD + Flagger)
+
+Платформу (сеть, шлюз, мониторинг, политики) ставит helmfile — это bootstrap кластера. **Приложения доставляются по GitOps:** [Argo CD](https://argo-cd.readthedocs.io) ([`charts/gitops`](charts/gitops)) следит за репозиторием и синхронизирует приложение `rollout` из `charts/rollout` (по умолчанию ветка `main`, в CI — проверяемый коммит pull request). Ручное изменение в кластере Argo CD сразу возвращает к состоянию из Git (`selfHeal`), удалённое из Git — удаляет (`prune`). UI — `https://argocd.demo.test` (логин `admin`, пароль — `argocd-password` в `.state/credentials`).
+
+Получается полный путь доставки: **изменение в Git → Argo CD синхронизирует Deployment → Flagger постепенно выкатывает и проверяет метрики → продвигает или откатывает**.
 
 Canary 90/10 у `hello` — ручной: вес задан в values. Для автоматической выкатки используется [Flagger](https://flagger.app) (провайдер Gateway API v1). Он управляет отдельным демо-сервисом `rollout.demo.test` ([`charts/rollout`](charts/rollout), приложение [podinfo](https://github.com/stefanprodan/podinfo)):
 
@@ -445,50 +451,50 @@ Canary 90/10 у `hello` — ручной: вес задан в values. Для а
 2. Каждые 20 секунд он запрашивает у Prometheus **долю ответов 5xx** и **p99 задержки** новой версии (собственные `MetricTemplate`, метрики приложения).
 3. Если метрики в норме, новая версия становится стабильной. Если порог (1% ошибок или 0,5 с) нарушен 3 раза — **автоматический откат**: весь трафик возвращается на стабильную версию, срабатывает алерт `CanaryRolledBack`.
 
-`make rollout` ([`scripts/rollout-test.sh`](scripts/rollout-test.sh)) проверяет это под нагрузкой через Gateway: выкатывает исправную версию (должна продвинуться без ошибок у клиентов), затем неисправную (podinfo с `--random-error` — треть ответов с ошибкой; должна откатиться), затем возвращает версию из Git. На дашборде «Hello service» — раздел Flagger: результат анализа, веса трафика по шагам и запросы/ошибки по версиям. Тест выполняется в CI на каждом коммите.
+`make rollout` ([`scripts/rollout-test.sh`](scripts/rollout-test.sh)) проверяет весь путь под нагрузкой через Gateway. Новую версию он задаёт через Argo CD (меняет значения Helm в `Application` — так же Argo CD отреагировал бы на коммит), а не правкой Deployment в обход GitOps. Сценарий: исправная версия должна продвинуться без ошибок у клиентов, неисправная (podinfo с `--random-error` — треть ответов с ошибкой) — откатиться, после чего восстанавливаются значения из Git. На дашборде «Hello service» — раздел Flagger: результат анализа, веса трафика по шагам и запросы/ошибки по версиям. Тест выполняется в CI на каждом коммите.
 
-Ошибки при неудачной выкатке получает только доля трафика canary (20%) и только до отката — в примере ниже 4,4% запросов за время анализа и ни одной после.
+Ошибки при неудачной выкатке получает только доля трафика canary (20%) и только до отката — в примере ниже 4,9% запросов за время анализа и ни одной после.
 
 ```text
 Progressive delivery (Flagger): https://rollout.demo.test, сейчас отвечает «стабильная версия из Git»
 
-1. Новая исправная версия: Flagger постепенно переводит трафик и продвигает её
-     01:29:23  Progressing вес canary 0%, неудачных проверок 0
-     01:29:42  Progressing вес canary 20%, неудачных проверок 0
-     01:30:04  Progressing вес canary 40%, неудачных проверок 0
-     01:30:23  Progressing вес canary 60%, неудачных проверок 0
-     01:30:44  Promoting вес canary 60%, неудачных проверок 0
-     01:31:03  Finalising вес canary 0%, неудачных проверок 0
-     01:31:25  Succeeded вес canary 0%, неудачных проверок 0
-     1469 200  новая версия 012913
-     1294 200  стабильная версия из Git
-  ✔ версия продвинута: весь трафик получает «новая версия 012913»
-  ✔ клиенты не получили ни одной ошибки (2763 запросов)
+1. Новая исправная версия (изменение в Argo CD Application): Flagger постепенно переводит трафик и продвигает её
+     12:52:44  Progressing вес canary 0%, неудачных проверок 0
+     12:53:03  Progressing вес canary 20%, неудачных проверок 0
+     12:53:25  Progressing вес canary 40%, неудачных проверок 0
+     12:53:43  Progressing вес canary 60%, неудачных проверок 0
+     12:54:05  Promoting вес canary 60%, неудачных проверок 0
+     12:54:24  Finalising вес canary 0%, неудачных проверок 0
+     12:54:42  Succeeded вес canary 0%, неудачных проверок 0
+     1314 200  новая версия 125235
+     1291 200  стабильная версия из Git
+  ✔ версия продвинута: весь трафик получает «новая версия 125235»
+  ✔ клиенты не получили ни одной ошибки (2605 запросов)
 
 2. Неисправная версия (треть ответов — 500): Flagger должен откатить её
-     01:31:43  Progressing вес canary 0%, неудачных проверок 0
-     01:32:04  Progressing вес canary 20%, неудачных проверок 0
-     01:32:23  Progressing вес canary 20%, неудачных проверок 1
-     01:32:45  Progressing вес canary 20%, неудачных проверок 2
-     01:33:03  Progressing вес canary 20%, неудачных проверок 3
-     01:33:25  Failed вес canary 0%, неудачных проверок 0
-     2347 200  новая версия 012913
-      229 200  неисправная версия 012913
-       49 400  -
-       36 500  -
-       33 409  -
-  ✔ откат выполнен: весь трафик снова получает «новая версия 012913»
-     ошибок у клиентов за время анализа: 118 из 2694 (4.4%) — только доля трафика canary до отката
-  ✔ после отката ошибок нет (324 запросов за 15 с)
+     12:55:03  Progressing вес canary 0%, неудачных проверок 0
+     12:55:25  Progressing вес canary 20%, неудачных проверок 0
+     12:56:05  Progressing вес canary 20%, неудачных проверок 1
+     12:56:24  Progressing вес canary 20%, неудачных проверок 2
+     12:56:43  Progressing вес canary 20%, неудачных проверок 3
+     12:57:05  Failed вес canary 0%, неудачных проверок 0
+     2471 200  новая версия 125235
+      250 200  неисправная версия 125235
+       49 409  -
+       48 500  -
+       42 400  -
+  ✔ откат выполнен: весь трафик снова получает «новая версия 125235»
+     ошибок у клиентов за время анализа: 139 из 2860 (4.9%) — только доля трафика canary до отката
+  ✔ после отката ошибок нет (253 запросов за 15 с)
 
-3. Возврат версии из Git
-     01:34:03  Progressing вес canary 0%, неудачных проверок 0
-     01:34:25  Progressing вес canary 20%, неудачных проверок 0
-     01:34:43  Progressing вес canary 40%, неудачных проверок 0
-     01:35:02  Progressing вес canary 60%, неудачных проверок 0
-     01:35:24  Promoting вес canary 60%, неудачных проверок 0
-     01:35:44  Finalising вес canary 0%, неудачных проверок 0
-     01:36:03  Succeeded вес canary 0%, неудачных проверок 0
+3. Возврат к значениям из Git (Argo CD синхронизирует, Flagger выкатывает)
+     12:57:44  Progressing вес canary 0%, неудачных проверок 0
+     12:58:03  Progressing вес canary 20%, неудачных проверок 0
+     12:58:25  Progressing вес canary 40%, неудачных проверок 0
+     12:58:43  Progressing вес canary 60%, неудачных проверок 0
+     12:59:02  Promoting вес canary 60%, неудачных проверок 0
+     12:59:24  Finalising вес canary 0%, неудачных проверок 0
+     12:59:43  Succeeded вес canary 0%, неудачных проверок 0
   ✔ кластер снова соответствует Git: «стабильная версия из Git»
 
 Итог: 5 пройдено, 0 провалено
@@ -696,7 +702,8 @@ charts/hello/               демо-приложение
 charts/platform-config/     Gateway API, TLS, политики трафика, мониторы, алерты, SLO, дашборд
 charts/etcd-backup/         CronJob снапшотов etcd с проверкой и алертами
 charts/policies/            политики допуска Kyverno (подпись образов, digest)
-charts/rollout/             podinfo под управлением Flagger: Canary, MetricTemplate, алерт отката
+charts/rollout/             podinfo под управлением Flagger: Canary, MetricTemplate, алерт отката (доставляется Argo CD)
+charts/gitops/              Argo CD: проект и Application, синхронизируемые из Git
 images/fluentd/             Dockerfile и Gemfile образа Fluentd
 .github/workflows/          CI/CD
 docs/adr/                   архитектурные решения (ADR): что выбрано, альтернативы, последствия

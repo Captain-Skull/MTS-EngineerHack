@@ -4,3 +4,6 @@ fluentd:
   image:
     repository: {{ env "FLUENTD_IMAGE_REPOSITORY" | default "ghcr.io/captain-skull/fluentd-k8s-loki" }}
     tag: {{ env "FLUENTD_IMAGE_TAG" | default "1.19.3-1" }}
+gitops:
+  repoURL: {{ env "GITOPS_REPO_URL" | default "https://github.com/Captain-Skull/MTS-EngineerHack.git" }}
+  targetRevision: {{ env "GITOPS_REVISION" | default "main" }}

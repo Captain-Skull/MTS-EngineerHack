@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: Приложения, которые доставляются из Git (платформу ставит helmfile)
+  sourceRepos:
+    - {{ .Values.repoURL }}
+  destinations:
+    {{- range $name, $app := .Values.apps }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ $app.namespace }}
+    {{- end }}
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - { group: "", kind: Service }
+    - { group: apps, kind: Deployment }
+    - { group: autoscaling, kind: HorizontalPodAutoscaler }
+    - { group: policy, kind: PodDisruptionBudget }
+    - { group: networking.k8s.io, kind: NetworkPolicy }
+    - { group: monitoring.coreos.com, kind: PodMonitor }
+    - { group: monitoring.coreos.com, kind: PrometheusRule }
+    - { group: flagger.app, kind: Canary }
+    - { group: flagger.app, kind: MetricTemplate }

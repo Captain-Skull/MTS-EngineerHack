@@ -1,0 +1,5 @@
+apiVersion: v2
+name: gitops
+description: Приложения под управлением Argo CD — проект и Application, синхронизируемые из Git
+type: application
+version: 1.0.0

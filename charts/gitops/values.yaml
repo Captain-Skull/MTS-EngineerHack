@@ -1,0 +1,8 @@
+domain: demo.test
+repoURL: https://github.com/Captain-Skull/MTS-EngineerHack.git
+targetRevision: main
+
+apps:
+  rollout:
+    path: charts/rollout
+    namespace: demo

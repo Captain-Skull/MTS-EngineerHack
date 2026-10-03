@@ -96,6 +96,8 @@ jobs:
     env:
       FLUENTD_IMAGE_REPOSITORY: ci.local/fluentd-k8s-loki
       FLUENTD_IMAGE_TAG: ci
+      GITOPS_REPO_URL: https://github.com/${{ github.repository }}.git
+      GITOPS_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
 

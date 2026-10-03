@@ -77,30 +77,29 @@ watch_canary() {
   return 1
 }
 
+APP_NS=argocd
 set_version() {
-  local message="$1" faulty="$2" args
-  args="$(python3 -c '
+  local message="$1" faulty="$2" patch
+  patch="$(python3 -c '
 import json, sys
-args = json.loads(sys.argv[1])
-args = [a for a in args if not a.startswith(("--ui-message=", "--random-error"))]
-args.append("--ui-message=" + sys.argv[2])
-if sys.argv[3] == "1":
-    args.append("--random-error")
-print(json.dumps([{"op": "replace", "path": "/spec/template/spec/containers/0/args", "value": args}]))
-' "${ORIGINAL_ARGS}" "${message}" "${faulty}")"
-  kubectl -n "${NS}" patch deploy "${NAME}" --type=json -p "${args}" >/dev/null
+values = json.loads(sys.argv[1])
+values["message"] = sys.argv[2]
+values["faults"] = {"randomError": sys.argv[3] == "1"}
+print(json.dumps([{"op": "replace", "path": "/spec/source/helm/valuesObject", "value": values}]))
+' "${ORIGINAL_VALUES}" "${message}" "${faulty}")"
+  kubectl -n "${APP_NS}" patch application "${NAME}" --type=json -p "${patch}" >/dev/null
 }
 
 kubectl -n "${NS}" wait canary/"${NAME}" --for=jsonpath='{.status.phase}'=Initialized --timeout=10s >/dev/null 2>&1 ||
   kubectl -n "${NS}" wait canary/"${NAME}" --for=jsonpath='{.status.phase}'=Succeeded --timeout=300s >/dev/null 2>&1 ||
   { echo "Canary ${NS}/${NAME} не в стабильном состоянии ($(phase)) — сначала make platform" >&2; exit 1; }
-ORIGINAL_ARGS="$(kubectl -n "${NS}" get deploy "${NAME}" -o jsonpath='{.spec.template.spec.containers[0].args}')"
+ORIGINAL_VALUES="$(kubectl -n "${APP_NS}" get application "${NAME}" -o jsonpath='{.spec.source.helm.valuesObject}')"
 ORIGINAL_MESSAGE="$(stable_message)"
 TS="$(date +%H%M%S)"
 
 printf '\033[1mProgressive delivery (Flagger)\033[0m: https://%s, сейчас отвечает «%s»\n' "${H}" "${ORIGINAL_MESSAGE}"
 
-step "1. Новая исправная версия: Flagger постепенно переводит трафик и продвигает её"
+step "1. Новая исправная версия (изменение в Argo CD Application): Flagger постепенно переводит трафик и продвигает её"
 load_start
 set_version "новая версия ${TS}" 0
 if watch_canary Succeeded 600; then
@@ -138,10 +137,10 @@ else
   bad "откат не произошёл (состояние $(phase))"
 fi
 
-step "3. Возврат версии из Git"
+step "3. Возврат к значениям из Git (Argo CD синхронизирует, Flagger выкатывает)"
 load_start
-kubectl -n "${NS}" patch deploy "${NAME}" --type=json \
-  -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/args\",\"value\":${ORIGINAL_ARGS}}]" >/dev/null
+kubectl -n "${APP_NS}" patch application "${NAME}" --type=json \
+  -p "[{\"op\":\"replace\",\"path\":\"/spec/source/helm/valuesObject\",\"value\":${ORIGINAL_VALUES}}]" >/dev/null
 if watch_canary Succeeded 600; then
   load_stop
   if [[ "$(stable_message)" == "${ORIGINAL_MESSAGE}" ]]; then ok "кластер снова соответствует Git: «${ORIGINAL_MESSAGE}»"; else bad "отвечает «$(stable_message)»"; fi

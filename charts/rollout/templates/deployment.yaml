@@ -36,6 +36,9 @@ spec:
             - --port-metrics=9797
             - --level=info
             - --ui-message={{ .Values.message }}
+            {{- if .Values.faults.randomError }}
+            - --random-error
+            {{- end }}
           ports:
             - { name: http, containerPort: 9898, protocol: TCP }
             - { name: metrics, containerPort: 9797, protocol: TCP }

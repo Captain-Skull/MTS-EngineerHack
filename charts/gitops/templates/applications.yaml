@@ -1,0 +1,30 @@
+{{- range $name, $app := .Values.apps }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: apps
+  source:
+    repoURL: {{ $.Values.repoURL }}
+    targetRevision: {{ $.Values.targetRevision | quote }}
+    path: {{ $app.path }}
+    helm:
+      releaseName: {{ $name }}
+      valuesObject:
+        domain: {{ $.Values.domain }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 2m }
+{{- end }}

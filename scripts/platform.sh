@@ -38,6 +38,19 @@ ensure_secrets() {
   printf 'user: admin\npassword: %s\n' "${pass}" > "${STATE}/credentials"
 }
 
+wait_gitops() {
+  local app
+  for app in $(kubectl -n argocd get applications -o jsonpath='{.items[*].metadata.name}'); do
+    log "Argo CD: ожидание синхронизации ${app} из Git"
+    kubectl -n argocd wait "application/${app}" --for=jsonpath='{.status.sync.status}'=Synced --timeout=600s >/dev/null
+    kubectl -n argocd wait "application/${app}" --for=jsonpath='{.status.health.status}'=Healthy --timeout=600s >/dev/null
+  done
+  local argo_pass
+  argo_pass="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+  [[ -n "${argo_pass}" ]] && printf 'argocd-user: admin\nargocd-password: %s\n' "${argo_pass}" >> "${STATE}/credentials"
+  return 0
+}
+
 case "${1:-apply}" in
   apply)
     ensure_secrets
@@ -52,6 +65,7 @@ case "${1:-apply}" in
       log "попытка ${i}/${attempts} не удалась (например, сетевой таймаут) — повтор через 15 с"
       sleep 15
     done
+    wait_gitops
     log "готово. Учётные данные UI: ${STATE}/credentials"
     ;;
   diff)

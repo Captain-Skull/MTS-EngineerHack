@@ -24,6 +24,8 @@ repositories:
     url: https://kyverno.github.io/kyverno
   - name: flagger
     url: https://flagger.app
+  - name: argo
+    url: https://argoproj.github.io/argo-helm
 
 helmDefaults:
   wait: true
@@ -186,10 +188,20 @@ releases:
     values: [values/flagger.yaml]
     labels: { tier: platform }
 
-  - name: rollout
-    namespace: demo
-    chart: ../charts/rollout
-    needs: [flagger-system/flagger, envoy-gateway-system/platform-config, kyverno/policies]
+  - name: argo-cd
+    namespace: argocd
+    chart: argo/argo-cd
+    version: 10.9.6
+    needs: [monitoring/kube-prometheus-stack]
+    values: [values/argo-cd.yaml.gotmpl]
+    labels: { tier: platform }
+
+  - name: gitops
+    namespace: argocd
+    chart: ../charts/gitops
+    needs: [argocd/argo-cd, flagger-system/flagger, envoy-gateway-system/platform-config, kyverno/policies]
     values:
       - domain: {{ .Values.domain }}
+        repoURL: {{ .Values.gitops.repoURL }}
+        targetRevision: {{ .Values.gitops.targetRevision }}
     labels: { tier: app }

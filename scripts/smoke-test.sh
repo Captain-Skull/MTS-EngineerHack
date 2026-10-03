@@ -65,6 +65,13 @@ canary_ready() { [[ "$(kubectl -n demo get canary rollout -o jsonpath='{.status.
 check "Flagger: Canary demo/rollout инициализирован (HTTPRoute создан Flagger)" eventually 180 canary_ready
 R="rollout.${DOMAIN}"
 check "rollout.${DOMAIN} через Gateway → podinfo" grep -q '"version"' <<<"$(curl -sS --max-time 10 --cacert "${STATE}/ca.crt" --resolve "${R}:443:${GW_IP}" "https://${R}/")"
+app_state() { kubectl -n argocd get application rollout -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null; }
+app_ok() { [[ "$(app_state)" == Synced/Healthy ]]; }
+check "Argo CD: приложение rollout синхронизировано из Git ($(kubectl -n argocd get application rollout -o jsonpath='{.spec.source.targetRevision}' 2>/dev/null))" eventually 300 app_ok
+uid_before="$(kubectl -n demo get networkpolicy rollout -o jsonpath='{.metadata.uid}' 2>/dev/null)"
+kubectl -n demo delete networkpolicy rollout --wait=true >/dev/null 2>&1
+healed() { local u; u="$(kubectl -n demo get networkpolicy rollout -o jsonpath='{.metadata.uid}' 2>/dev/null)"; [[ -n "${u}" && "${u}" != "${uid_before}" ]]; }
+check "Argo CD self-heal: удалённая вручную NetworkPolicy восстановлена из Git" eventually 120 healed
 
 step "2. Логирование (nginx → Fluentd → Loki)"
 RID="smoke-$(date +%s)-${RANDOM}"

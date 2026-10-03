@@ -9,7 +9,7 @@ Architecture Decision Records — короткие записи о значим�
 | [0003](0003-cilium.md) | Cilium без kube-proxy и Node IPAM вместо MetalLB | принято |
 | [0004](0004-envoy-gateway.md) | Envoy Gateway как реализация Gateway API | принято |
 | [0005](0005-fluentd-loki.md) | Fluentd с собственным образом и Loki вместо Elasticsearch | принято |
-| [0006](0006-helmfile.md) | Helmfile + Make для платформы, без GitOps-контроллера | принято |
+| [0006](0006-helmfile.md) | Helmfile + Make для платформы, без GitOps-контроллера | принято, дополнено 0014 |
 | [0007](0007-own-ca.md) | Собственный CA в cert-manager вместо ACME | принято |
 | [0008](0008-tracing.md) | Трейсинг OpenTelemetry → Tempo | принято |
 | [0009](0009-kyverno-fail-closed.md) | Kyverno, проверка подписи в режиме fail-closed | принято |
@@ -17,3 +17,4 @@ Architecture Decision Records — короткие записи о значим�
 | [0011](0011-chaos-testing.md) | Отказоустойчивость проверяется тестом под нагрузкой в CI | принято |
 | [0012](0012-cis-exceptions.md) | CIS Benchmark как защита от регрессий, с явными отклонениями | принято |
 | [0013](0013-flagger.md) | Progressive delivery: Flagger с провайдером Gateway API | принято |
+| [0014](0014-gitops-argocd.md) | GitOps для приложений: Argo CD поверх платформы из helmfile | принято |

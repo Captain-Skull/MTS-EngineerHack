@@ -106,7 +106,7 @@
   loop_control:
     label: "{{ item.key }}"
 
-- name: Зеркала реестров (сначала зеркало, затем исходный реестр)
+- name: Зеркала реестров (сначала исходный реестр, при его недоступности зеркало)
   ansible.builtin.template:
     src: hosts.toml.j2
     dest: "/etc/containerd/certs.d/{{ item.key }}/hosts.toml"

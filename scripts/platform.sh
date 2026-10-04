@@ -51,9 +51,20 @@ wait_gitops() {
   return 0
 }
 
+choose_chart_source() {
+  [[ -n "${ENVOY_GATEWAY_CHART:-}" ]] && return 0
+  local version
+  version="$(awk '/chart: .*gateway-helm/{f=1} f && /version:/{print $2; exit}' "${ROOT}/helmfile/helmfile.yaml.gotmpl")"
+  if ! helm show chart "oci://docker.io/envoyproxy/gateway-helm" --version "${version}" >/dev/null 2>&1; then
+    log "Docker Hub недоступен для чарта Envoy Gateway, используется зеркало mirror.gcr.io"
+    export ENVOY_GATEWAY_CHART=oci://mirror.gcr.io/envoyproxy/gateway-helm
+  fi
+}
+
 case "${1:-apply}" in
   apply)
     ensure_secrets
+    choose_chart_source
     log "helmfile apply (API server ${K8S_API_HOST})"
     attempts="${PLATFORM_ATTEMPTS:-3}"
     for i in $(seq 1 "${attempts}"); do
@@ -69,6 +80,7 @@ case "${1:-apply}" in
     log "готово. Учётные данные UI: ${STATE}/credentials"
     ;;
   diff)
+    choose_chart_source
     helmfile --file "${ROOT}/helmfile/helmfile.yaml.gotmpl" diff --suppress-secrets --context 3
     ;;
   *) die "usage: $0 apply|diff" ;;

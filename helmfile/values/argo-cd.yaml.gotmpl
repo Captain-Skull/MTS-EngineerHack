@@ -4,7 +4,7 @@ global:
   env:
     - { name: HTTPS_PROXY, value: {{ env "HTTPS_PROXY" | quote }} }
     - { name: HTTP_PROXY, value: {{ env "HTTP_PROXY" | default (env "HTTPS_PROXY") | quote }} }
-    - { name: NO_PROXY, value: {{ env "NO_PROXY" | quote }} }
+    - { name: NO_PROXY, value: {{ printf "%s,argo-cd-argocd-repo-server,argo-cd-argocd-redis,argo-cd-argocd-server,argo-cd-argocd-applicationset-controller,argo-cd-argocd-dex-server" (env "NO_PROXY") | quote }} }
 {{- end }}
 
 configs:

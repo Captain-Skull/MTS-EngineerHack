@@ -1,3 +1,11 @@
+{{- if env "HTTPS_PROXY" }}
+global:
+  extraEnvVars:
+    - { name: HTTPS_PROXY, value: {{ env "HTTPS_PROXY" | quote }} }
+    - { name: HTTP_PROXY, value: {{ env "HTTP_PROXY" | default (env "HTTPS_PROXY") | quote }} }
+    - { name: NO_PROXY, value: {{ env "NO_PROXY" | quote }} }
+{{- end }}
+
 admissionController:
   replicas: 2
   podDisruptionBudget:

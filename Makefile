@@ -10,6 +10,19 @@ export HELM_CACHE_HOME := $(ROOT)/.helm/cache
 export HELM_CONFIG_HOME := $(ROOT)/.helm/config
 export ANSIBLE_CONFIG := $(ROOT)/ansible/ansible.cfg
 
+comma := ,
+HTTPS_PROXY ?= $(https_proxy)
+HTTP_PROXY ?= $(or $(http_proxy),$(HTTPS_PROXY))
+ifneq ($(strip $(HTTPS_PROXY)$(HTTP_PROXY)),)
+USER_NO_PROXY := $(strip $(or $(NO_PROXY),$(no_proxy)))
+HOST_IPS := $(shell hostname -I 2>/dev/null | xargs | tr ' ' ',')
+override NO_PROXY := localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,.demo.test$(if $(HOST_IPS),$(comma)$(HOST_IPS))$(if $(USER_NO_PROXY),$(comma)$(USER_NO_PROXY))
+export HTTP_PROXY HTTPS_PROXY NO_PROXY
+export http_proxy := $(HTTP_PROXY)
+export https_proxy := $(HTTPS_PROXY)
+export no_proxy := $(NO_PROXY)
+endif
+
 INVENTORY ?= $(if $(wildcard .state/inventory.ini),.state/inventory.ini,ansible/inventory/local.ini)
 BECOME_FLAG := $(shell sudo -n true 2>/dev/null || grep -q ansible_user $(INVENTORY) 2>/dev/null || echo --ask-become-pass)
 ENV ?= default

@@ -83,7 +83,7 @@ releases:
     chart: kyverno/kyverno
     version: 3.9.1
     needs: [monitoring/prometheus-operator-crds, kube-system/cilium]
-    values: [values/kyverno.yaml]
+    values: [values/kyverno.yaml.gotmpl]
     labels: { tier: platform }
 
   - name: policies
@@ -109,7 +109,7 @@ releases:
 
   - name: envoy-gateway
     namespace: envoy-gateway-system
-    chart: oci://docker.io/envoyproxy/gateway-helm
+    chart: {{ env "ENVOY_GATEWAY_CHART" | default "oci://docker.io/envoyproxy/gateway-helm" }}
     version: v1.9.2
     needs: [kube-system/cilium]
     values: [values/envoy-gateway.yaml]

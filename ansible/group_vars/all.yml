@@ -4,6 +4,12 @@ kubernetes_deb_revision: "1.1"
 containerd_version: "2.4.1"
 runc_version: "1.5.2"
 
+containerd_registry_mirrors:
+  docker.io:
+    server: https://registry-1.docker.io
+    mirrors:
+      - https://mirror.gcr.io
+
 cluster_name: mts-hack
 pod_subnet: 10.244.0.0/16
 service_subnet: 10.96.0.0/12

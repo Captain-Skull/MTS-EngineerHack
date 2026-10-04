@@ -60,6 +60,25 @@
     mode: "0644"
   notify: Restart containerd
 
+- name: Каталоги зеркал реестров
+  ansible.builtin.file:
+    path: "/etc/containerd/certs.d/{{ item.key }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ containerd_registry_mirrors | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Зеркала реестров (сначала зеркало, затем исходный реестр)
+  ansible.builtin.template:
+    src: hosts.toml.j2
+    dest: "/etc/containerd/certs.d/{{ item.key }}/hosts.toml"
+    mode: "0644"
+  loop: "{{ containerd_registry_mirrors | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  notify: Restart containerd
+
 - name: Запуск containerd
   ansible.builtin.systemd_service:
     name: containerd

@@ -109,7 +109,7 @@ releases:
 
   - name: envoy-gateway
     namespace: envoy-gateway-system
-    chart: oci://docker.io/envoyproxy/gateway-helm
+    chart: oci://mirror.gcr.io/envoyproxy/gateway-helm
     version: v1.9.2
     needs: [kube-system/cilium]
     values: [values/envoy-gateway.yaml]

@@ -1,0 +1,6 @@
+server = "{{ item.value.server }}"
+{% for mirror in item.value.mirrors %}
+
+[host."{{ mirror }}"]
+  capabilities = ["pull", "resolve"]
+{% endfor %}

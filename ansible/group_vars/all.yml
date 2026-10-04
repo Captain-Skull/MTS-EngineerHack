@@ -4,6 +4,15 @@ kubernetes_deb_revision: "1.1"
 containerd_version: "2.4.1"
 runc_version: "1.5.2"
 
+proxy_https: "{{ lookup('ansible.builtin.env', 'HTTPS_PROXY') }}"
+proxy_http: "{{ lookup('ansible.builtin.env', 'HTTP_PROXY') | default(proxy_https, true) }}"
+proxy_no: "{{ lookup('ansible.builtin.env', 'NO_PROXY') }},{{ node_ip }}"
+proxy_env: >-
+  {{ {'http_proxy': proxy_http, 'https_proxy': proxy_https, 'no_proxy': proxy_no,
+      'HTTP_PROXY': proxy_http, 'HTTPS_PROXY': proxy_https, 'NO_PROXY': proxy_no}
+     if proxy_https | length > 0 else {} }}
+registry_mirrors_env: "{{ lookup('ansible.builtin.env', 'REGISTRY_MIRRORS') }}"
+
 containerd_registry_mirrors:
   docker.io:
     server: https://registry-1.docker.io

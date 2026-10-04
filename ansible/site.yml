@@ -21,6 +21,7 @@
 - name: Подготовка всех узлов
   hosts: k8s_cluster
   become: true
+  environment: "{{ proxy_env }}"
   roles:
     - common
     - containerd
@@ -29,17 +30,20 @@
 - name: Control plane
   hosts: control_plane
   become: true
+  environment: "{{ proxy_env }}"
   roles:
     - control_plane
 
 - name: Worker-узлы
   hosts: workers
   become: true
+  environment: "{{ proxy_env }}"
   roles:
     - worker
 
 - name: Приведение узлов к CIS Kubernetes Benchmark
   hosts: k8s_cluster
   become: true
+  environment: "{{ proxy_env }}"
   roles:
     - cis

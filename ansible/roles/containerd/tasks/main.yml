@@ -60,6 +60,43 @@
     mode: "0644"
   notify: Restart containerd
 
+- name: Зеркала из переменной REGISTRY_MIRRORS (реестр=адрес[,реестр=адрес])
+  ansible.builtin.set_fact:
+    containerd_registry_mirrors: "{{ containerd_registry_mirrors | combine(containerd_mirrors_from_env) }}"
+  vars:
+    containerd_mirrors_from_env: >-
+      {%- set out = {} -%}
+      {%- for pair in registry_mirrors_env.split(',') if '=' in pair -%}
+      {%- set reg = pair.split('=', 1)[0] | trim -%}
+      {%- set url = pair.split('=', 1)[1] | trim -%}
+      {%- set _ = out.update({reg: {'server': ('https://registry-1.docker.io' if reg == 'docker.io' else 'https://' ~ reg), 'mirrors': [url]}}) -%}
+      {%- endfor -%}
+      {{ out }}
+  when: registry_mirrors_env | length > 0
+
+- name: Каталог настроек systemd для containerd
+  ansible.builtin.file:
+    path: /etc/systemd/system/containerd.service.d
+    state: directory
+    mode: "0755"
+
+- name: Прокси для containerd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/containerd.service.d/http-proxy.conf
+    content: |
+      [Service]
+      Environment="HTTP_PROXY={{ proxy_http }}" "HTTPS_PROXY={{ proxy_https }}" "NO_PROXY={{ proxy_no }}"
+    mode: "0644"
+  when: proxy_env | length > 0
+  notify: Restart containerd
+
+- name: Без прокси для containerd
+  ansible.builtin.file:
+    path: /etc/systemd/system/containerd.service.d/http-proxy.conf
+    state: absent
+  when: proxy_env | length == 0
+  notify: Restart containerd
+
 - name: Каталоги зеркал реестров
   ansible.builtin.file:
     path: "/etc/containerd/certs.d/{{ item.key }}"

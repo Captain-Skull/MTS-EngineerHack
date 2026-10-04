@@ -227,7 +227,7 @@ flowchart LR
 |---|---|---|
 | Kubernetes | 1.36.5 | оркестратор, кластер создаёт kubeadm |
 | ОС | Ubuntu 24.04 LTS | протестировано: Ubuntu 24.04.5 (arm64, Multipass) и GitHub runner `ubuntu-24.04` (amd64) |
-| containerd / runc | 2.4.1 / 1.5.2 | container runtime |
+| containerd / runc | 2.4.1 / 1.5.2 | container runtime; образы Docker Hub скачиваются через зеркало `mirror.gcr.io` |
 | Cilium | 1.20.2 | CNI на eBPF, замена kube-proxy, Node IPAM, NetworkPolicy, Hubble |
 | Envoy Gateway | 1.9.2 (Envoy 1.39.1) | реализация Gateway API v1.6.1 |
 | cert-manager | 1.21.2 | выпуск и продление TLS-сертификатов |
@@ -273,7 +273,7 @@ flowchart LR
 | CPU | 4 vCPU | 4+ vCPU |
 | RAM | 8 ГБ (проверено: пик 5,5 ГБ) | 16 ГБ |
 | Диск | 30 ГБ свободно | 40 ГБ |
-| Сеть | доступ в интернет (пакеты, образы, чарты) | |
+| Сеть | доступ в интернет (пакеты, образы, чарты); прямой доступ к Docker Hub не нужен | |
 | Права | пользователь с `sudo` | |
 
 Порты 80, 443 и 6443 на машине должны быть свободны. Предустановка Docker, kubectl или helm не требуется; если Docker уже установлен, он продолжит работать (kubeadm использует containerd).
@@ -760,7 +760,7 @@ docs/adr/                   архитектурные решения (ADR): ч�
 - Namespace `monitoring`, `logging` и `local-path-storage` привилегированные: node-exporter, Fluentd и local-path требуют доступа к узлу.
 - Kyverno 1.19 официально тестируется на Kubernetes с 1.33 по 1.35, а кластер на 1.36 (версию определили Cilium и Envoy Gateway). Работа политик на 1.36 подтверждается e2e в CI и smoke-тестами на каждом коммите.
 - Для проверки подписи нужен доступ к GHCR и Rekor в момент создания пода. Без интернета поды с собственными образами не создадутся. Это fail-closed, и выбран он сознательно ради безопасности.
-- Для установки нужен доступ в интернет (пакеты Ubuntu, pkgs.k8s.io, GitHub, реестры образов и чартов).
+- Для установки нужен доступ в интернет (пакеты Ubuntu, pkgs.k8s.io, GitHub, реестры образов и чартов). Docker Hub напрямую не используется: containerd берёт образы `docker.io/...` через зеркало Google `mirror.gcr.io`, а сам Docker Hub остаётся запасным вариантом. Чарт Envoy Gateway тоже скачивается через это зеркало. Развертывание проверено на чистой VM, где Docker Hub был заблокирован. Если нужно другое зеркало (например, корпоративное), его можно указать в `containerd_registry_mirrors` в [`ansible/group_vars/all.yml`](ansible/group_vars/all.yml).
 
 ## Удаление
 
